@@ -8,7 +8,7 @@ import (
 func main() {
 	fmt.Println("hi")
 
-	db, err := ovsdb.Dial("tcp", ":12346") //db, err := ovsdb.Dial("unix", "/run/openvswitch/db.sock")
+	db, err := ovsdb.Dial("tcp", ":12345") //db, err := ovsdb.Dial("unix", "/run/openvswitch/db.sock")
 	if err != nil {
 		fmt.Println("unable to dial: " + err.Error())
 		return
@@ -20,10 +20,7 @@ func main() {
 	fmt.Println(schema.Tables["Bridge"])
 
 	txn := db.Transact("Open_vSwitch")
-
-	txn.Insert(ovsdb.Bridge{Name: "Peter"})
-
-
+	txn.Insert(ovsdb.Bridge{Name: "Peter3"})
 	res, err := txn.Commit()
 	if err != nil {
 		fmt.Println(err)

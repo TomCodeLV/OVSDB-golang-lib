@@ -210,16 +210,7 @@ func (txn *Transaction) Commit() (interface{}, error) {
 		},
 	}
 	action["table"] = txn.schema
-	action["where"] = []interface{}{
-		[]interface{}{
-			"_uuid",
-			"==",
-			[]string{
-				"uuid",
-				"4f7799c7-5a79-4f83-9f37-5c3bf083019b",
-			},
-		},
-	}
+	action["where"] = []interface{}{}
 
 	args = append(args, action)
 
@@ -262,16 +253,7 @@ func (txn *Transaction) loadReferences() error {
 		action := map[string]interface{}{}
 		action["op"] = "select"
 		action["table"] = table
-		action["where"] = []interface{}{
-			[]interface{}{
-				"_uuid",
-				"!=",
-				[]string{
-					"uuid",
-					"4f7799c7-5a79-4f83-9f37-5c3bf083019b",
-				},
-			},
-		}
+		action["where"] = []interface{}{}
 		action["columns"] = []string{"name", "_uuid"}
 
 		args = append(args, action)
