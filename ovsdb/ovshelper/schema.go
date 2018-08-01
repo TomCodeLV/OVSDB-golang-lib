@@ -1,4 +1,4 @@
-package responses
+package ovshelper
 
 type BaseType struct {
 	Type string

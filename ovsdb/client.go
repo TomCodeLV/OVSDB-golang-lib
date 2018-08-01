@@ -2,20 +2,27 @@ package ovsdb
 
 import (
 	"net"
-	"fmt"
-	//"github.com/pborman/uuid"
+		//"github.com/pborman/uuid"
 	"strconv"
 	"math/rand"
 	"time"
 	"encoding/json"
-	"./responses"
+	"./dbmonitor"
+	"./dbtransaction"
 	"errors"
-)
+	)
+
+type Lock struct {
+	Locked bool
+}
 
 type Pending struct {
 	channel  chan int
 	response *json.RawMessage
+	error *json.RawMessage
 }
+
+type callback func(interface{})
 
 // ovsdb session handle structure
 type OVSDB struct {
@@ -24,6 +31,9 @@ type OVSDB struct {
 	dec *json.Decoder
 	enc *json.Encoder
 	pending map[uint64]*Pending
+	callbacks map[string]dbmonitor.Callback
+	lockedCallback func(string)
+	stolenCallback func(string)
 	counter uint64
 }
 
@@ -32,6 +42,10 @@ type OVSDB struct {
 func Dial(network, address string) (*OVSDB, error) {
 	ovsdb := new(OVSDB)
 	conn, err := net.Dial(network, address)
+	if err != nil {
+		return nil, err
+	}
+
 	ovsdb.Conn = conn
 
 	ovsdb.dec = json.NewDecoder(conn)
@@ -41,11 +55,12 @@ func Dial(network, address string) (*OVSDB, error) {
 	ovsdb.ID = "id" + strconv.FormatUint(rand.Uint64(), 10)
 
 	ovsdb.pending = make(map[uint64]*Pending)
+	ovsdb.callbacks = make(map[string]dbmonitor.Callback)
 	ovsdb.counter = 0
 
 	go ovsdb.loop()
 
-	return ovsdb, err
+	return ovsdb, nil
 }
 
 // closes ovsdb network connection
@@ -56,10 +71,17 @@ func (ovsdb *OVSDB) Close() error {
 // incoming message header structure
 // note that Result is stored in raw format
 type message struct {
-	Method string        	`json:"method"`
-	Params []interface{} 	`json:"params"`
-	Result *json.RawMessage	`json:"result"`
-	ID     interface{} 		`json:"id"`
+	Method string        		`json:"method"`
+	Params []*json.RawMessage 	`json:"params"`
+	Result *json.RawMessage		`json:"result"`
+	Error  *json.RawMessage		`json:"error"`
+	ID     interface{} 			`json:"id"`
+}
+
+type Error struct {
+	Syntax string	`json:"syntax"`
+	Details string	`json:"details"`
+	Error string	`json:"error"`
 }
 
 // loop is responsible for receiving all incoming messages
@@ -71,7 +93,6 @@ func (ovsdb *OVSDB) loop() error {
 			return err
 		}
 
-
 		switch msg.Method {
 		case "echo": // handle incoming echo messages
 			resp := map[string]interface{}{
@@ -81,11 +102,28 @@ func (ovsdb *OVSDB) loop() error {
 			}
 			ovsdb.enc.Encode(resp)
 		case "update": // handle incoming update notification
-			fmt.Println("update: ")
-			fmt.Println(msg.Params)
+			var id string
+			json.Unmarshal(*msg.Params[0], &id)
+			ovsdb.callbacks[id](*msg.Params[1])
+		case "locked":
+			if ovsdb.lockedCallback != nil {
+				var resp string
+				json.Unmarshal(*msg.Params[0], &resp)
+				ovsdb.lockedCallback(resp)
+			}
+		case "stolen":
+			if ovsdb.stolenCallback != nil {
+				var resp string
+				json.Unmarshal(*msg.Params[0], &resp)
+				ovsdb.stolenCallback(resp)
+			}
 		default: // handle incoming response
 			id := uint64(msg.ID.(float64))
-			ovsdb.pending[id].response = msg.Result
+			if msg.Error == nil {
+				ovsdb.pending[id].response = msg.Result
+			} else {
+				ovsdb.pending[id].error = msg.Error
+			}
 			// unblock related call invocation
 			ovsdb.pending[id].channel <- 1
 		}
@@ -97,9 +135,11 @@ func (ovsdb *OVSDB) loop() error {
 // call sends request to server and blocks
 // after it is unblocked in incoming message receiver loop it returns response
 // from server as raw data to be unmarshaled later
-func (ovsdb *OVSDB) call(method string, args interface{}) (json.RawMessage, error) {
-	id := ovsdb.counter
-	ovsdb.counter++
+func (ovsdb *OVSDB) Call(method string, args interface{}, idref *uint64) (json.RawMessage, error) {
+	id := ovsdb.GetCounter()
+	if idref != nil {
+		*idref = id
+	}
 
 	// create RPC request
 	req := map[string]interface{}{
@@ -121,156 +161,105 @@ func (ovsdb *OVSDB) call(method string, args interface{}) (json.RawMessage, erro
 	// block function
 	<-ch
 
+	if ovsdb.pending[id].error != nil {
+		var err2 Error
+
+		json.Unmarshal(*ovsdb.pending[id].error, &err2)
+
+		delete(ovsdb.pending, id)
+
+		return nil, errors.New(err2.Error + ": " + err2.Details + " (" + err2.Syntax + ")" )
+	}
+
 	response := ovsdb.pending[id].response
 	delete(ovsdb.pending, id)
 
 	return *response, err
 }
 
+func (ovsdb *OVSDB) Notify(method string, args interface{}) error {
+	req := map[string]interface{}{
+		"method": method,
+		"params": args,
+		"id":     nil,
+	}
+	err := ovsdb.enc.Encode(req)
+
+	return err
+}
+
+func (ovsdb *OVSDB) AddCallBack(id string, callback dbmonitor.Callback) {
+	ovsdb.callbacks[id] = callback
+}
+
+func (ovsdb *OVSDB) GetCounter() uint64 {
+	counter := ovsdb.counter
+	ovsdb.counter++
+	return counter
+}
+
 // ListDbs returns list of databases
-func (ovsdb *OVSDB) ListDbs() responses.DbList {
-	response, _ := ovsdb.call("list_dbs", []interface{}{})
-	dbs := responses.DbList{}
+func (ovsdb *OVSDB) ListDbs() []string {
+	response, _ := ovsdb.Call("list_dbs", []interface{}{}, nil)
+	dbs := []string{}
 	json.Unmarshal(response, &dbs)
 	return dbs
 }
 
 // GetSchema returns schema object containing all db schema data
-func (ovsdb *OVSDB) GetSchema(schema string) responses.Schema {
-	response, _ := ovsdb.call("get_schema", []string{schema})
-	sc := responses.Schema{}
-	json.Unmarshal(response, &sc)
-	return sc
+func (ovsdb *OVSDB) GetSchema(schema string) (json.RawMessage, error) {
+	return ovsdb.Call("get_schema", []string{schema}, nil)
 }
 
-// Transact returns transaction handle
-func (ovsdb *OVSDB) Transact(schema string) (*Transaction) {
-	txn := new(Transaction)
+// Transaction returns transaction handle
+func (ovsdb *OVSDB) Transaction(schema string) *dbtransaction.Transaction {
+	txn := new(dbtransaction.Transaction)
 
 	txn.OVSDB = ovsdb
-	txn.schema = schema
-	txn.Tables = map[string]bool{}
+	txn.Schema = schema
+	txn.Tables = map[string]string{}
 	txn.References = make(map[string][]interface{})
-	txn.counter = 1
+	txn.Counter = 1
 
 	return txn
 }
 
-// Transaction handle structure
-type Transaction struct {
-	OVSDB *OVSDB
-	schema string
-	Actions []interface{}
-	Tables map[string]bool
-	References map[string][]interface{}
-	counter int
+func (ovsdb *OVSDB) Monitor(schema string) *dbmonitor.Monitor {
+	monitor := new(dbmonitor.Monitor)
+
+	monitor.OVSDB = ovsdb
+	monitor.Schema = schema
+	monitor.MonitorRequests = make(map[string]interface{})
+
+	return monitor
 }
 
-// Insert adds new entity
-func (txn *Transaction) Insert(item interface{}) {
-	action := map[string]interface{}{}
-
-	action["uuid-name"] = "row" + strconv.Itoa(txn.counter)
-	txn.counter++
-
-	action["row"] = map[string]interface{} {
-		"name": item.(Bridge).Name,
-		"fail_mode": "secure",
-	}
-	action["op"] = "insert"
-
-	switch v := item.(type) {
-	case Bridge:
-		txn.Tables["Bridge"] = true
-		action["table"] = "Bridge"
-		txn.References["Bridge"] = append(txn.References["Bridge"], []string{"named-uuid", action["uuid-name"].(string)})
-	default:
-		fmt.Printf("I don't know about type %T!\n", v)
-	}
-
-	txn.Actions = append(txn.Actions, action)
+func (ovsdb *OVSDB) RegisterLockedCallback(Callback func(string)) {
+	ovsdb.lockedCallback = Callback
 }
 
-
-// Commit stores all staged changes in DB. It manages references in main table
-// automatically.
-func (txn *Transaction) Commit() (interface{}, error) {
-	txn.loadReferences()
-
-	args := []interface {}{txn.schema}
-	args = append(args, txn.Actions...)
-
-	// stored references in main table
-	action := map[string]interface{}{}
-	action["op"] = "update"
-	action["row"] = map[string]interface{}{
-		"bridges": []interface{}{
-			"set",
-			txn.References["Bridge"],
-		},
-	}
-	action["table"] = txn.schema
-	action["where"] = []interface{}{}
-
-	args = append(args, action)
-
-	response, _ := txn.OVSDB.call("transact", args)
-
-	var t responses.Transact
-	json.Unmarshal(response, &t)
-
-	// we have an error
-	if len(t) - 1 > len(txn.Actions) {
-		return nil, errors.New(t[len(t)-1].Error + ": " + t[len(t)-1].Details)
-	}
-
-	ret := make([]interface{}, 0)
-
-	for i := 0; i < len(txn.Actions); i++ {
-		if (txn.Actions[i].(map[string]interface{})["op"] == "insert") {
-			ret = append(ret, t[i].UUID)
-		} else {
-			ret = append(ret, nil)
-		}
-	}
-
-	return ret, nil
+func (ovsdb *OVSDB) RegisterStolenCallback(Callback func(string)) {
+	ovsdb.stolenCallback = Callback
 }
 
-// loadReferences is a helper function for Commit. It pulls all required
-// references.
-func (txn *Transaction) loadReferences() error {
-	args := []interface {}{txn.schema}
-
-	tableList := make([]string, len(txn.Tables))
-	idx := 0
-	for table, _ := range txn.Tables {
-		tableList[idx] = table
-		idx++
-	}
-
-	for _, table := range tableList {
-		action := map[string]interface{}{}
-		action["op"] = "select"
-		action["table"] = table
-		action["where"] = []interface{}{}
-		action["columns"] = []string{"name", "_uuid"}
-
-		args = append(args, action)
-	}
-
-	response, _ := txn.OVSDB.call("transact", args)
-
-	var t responses.Transact
-	json.Unmarshal(response, &t)
-
-	for idx, table := range tableList {
-		for _, row := range t[idx].Rows {
-			txn.References[table] = append(txn.References[table], []string{"uuid", row.UUID[1]})
-		}
-	}
-
-	return nil
+func (ovsdb *OVSDB) Lock(id string) (interface{}, error) {
+	response, err := ovsdb.Call("lock", []string{id}, nil)
+	lock := Lock{}
+	json.Unmarshal(response, &lock)
+	return lock, err
 }
 
+func (ovsdb *OVSDB) Steal(id string) (interface{}, error) {
+	response, err := ovsdb.Call("steal", []string{id}, nil)
+	lock := Lock{}
+	json.Unmarshal(response, &lock)
+	return lock, err
+}
+
+func (ovsdb *OVSDB) Unlock(id string) (interface{}, error) {
+	response, err := ovsdb.Call("unlock", []string{id}, nil)
+	lock := Lock{}
+	json.Unmarshal(response, &lock)
+	return lock, err
+}
 
