@@ -117,8 +117,6 @@ func (txn *Transaction) Wait(timeout uint64, tableName string,  conditions [][]s
 // Commit stores all staged changes in DB. It manages references in main table
 // automatically.
 func (txn *Transaction) Commit() (Transact, error) {
-	//txn.loadReferences()
-
 	args := []interface {}{txn.Schema}
 	args = append(args, txn.Actions...)
 
@@ -135,40 +133,4 @@ func (txn *Transaction) Commit() (Transact, error) {
 	}
 
 	return t, nil
-}
-
-// loadReferences is a dbmonitor function for Commit. It pulls all required
-// references.
-func (txn *Transaction) loadReferences() error {
-	//args := []interface {}{txn.Schema}
-	//
-	//tableList := make([]string, len(txn.Tables))
-	//idx := 0
-	//for tableName, _ := range txn.Tables {
-	//	tableList[idx] = tableName
-	//	idx++
-	//}
-	//
-	//for _, table := range tableList {
-	//	action := map[string]interface{}{}
-	//	action["op"] = "select"
-	//	action["table"] = table
-	//	action["where"] = []interface{}{}
-	//	action["columns"] = []string{"name", "_uuid"}
-	//
-	//	args = append(args, action)
-	//}
-	//
-	//response, _ := txn.OVSDB.Call("transact", args)
-	//
-	//var t Transact
-	//json.Unmarshal(response, &t)
-	//
-	//for idx, table := range tableList {
-	//	for _, row := range t[idx].Rows {
-	//		//txn.References[table] = append(txn.References[table], []string{"uuid", row.UUID[1]})
-	//	}
-	//}
-
-	return nil
 }
