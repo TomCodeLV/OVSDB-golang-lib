@@ -2,7 +2,6 @@ package ovsdb
 
 import (
 	"net"
-		//"github.com/pborman/uuid"
 	"strconv"
 	"math/rand"
 	"time"

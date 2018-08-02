@@ -4,6 +4,7 @@ import (
 	"testing"
 	"encoding/json"
 	"./ovshelper"
+	"./dbmonitor"
 	"fmt"
 	"time"
 )
@@ -183,3 +184,71 @@ func TestOVSDB_Transaction_Cancel(t *testing.T) {
 
 	for loop {}
 }
+
+func TestOVSDB_Monitor_And_Mutate(t *testing.T) {
+	loop := true
+	updateCount := 0
+
+	db, err := Dial(network, address)
+	if err != nil {
+		t.Error("Dial failed")
+	} else {
+		defer db.Close()
+	}
+
+	// start monitor
+	monitor := db.Monitor("Open_vSwitch")
+	monitor.Register("Open_vSwitch", dbmonitor.Table{
+		Columns:[]string{
+			"next_cfg",
+		},
+		Select: dbmonitor.Select{ Modify: true, },
+	})
+	monitor.Start(func(response json.RawMessage) {
+		// process update notification
+		updateCount += 1
+		var update struct{
+			Open_vSwitch map[string]interface{}
+		}
+		json.Unmarshal(response, &update)
+
+		if update.Open_vSwitch != nil {
+			loop = false
+		} else {
+			t.Error("Update notification failed")
+		}
+	})
+
+	// first change
+	txn := db.Transaction("Open_vSwitch")
+	txn.Mutate("Open_vSwitch", [][]string{}, [][]interface{}{{"next_cfg", "+=", 1}})
+	_, err2 := txn.Commit()
+	if err2 != nil {
+		t.Error("Mutate failed")
+	}
+
+	time.AfterFunc(time.Millisecond * 300, func(){
+		t.Error("Monitor timeout")
+		loop = false
+	})
+
+	_, err3 := monitor.Cancel()
+	if err3 != nil {
+		t.Error("Monitor cancel request failed")
+	}
+
+	// second change
+	txn2 := db.Transaction("Open_vSwitch")
+	txn2.Mutate("Open_vSwitch", [][]string{}, [][]interface{}{{"next_cfg", "+=", 1}})
+	txn2.Commit()
+
+	for loop {
+
+	}
+
+	if updateCount > 1 {
+		t.Error("Monitor cancel failed")
+	}
+}
+
+

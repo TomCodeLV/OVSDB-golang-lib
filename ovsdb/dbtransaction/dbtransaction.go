@@ -2,7 +2,7 @@ package dbtransaction
 
 import (
 	"strconv"
-		"encoding/json"
+	"encoding/json"
 	"errors"
 	)
 
@@ -79,15 +79,15 @@ func (txn *Transaction) Update(tableName string, item interface{}) {
 	txn.Actions = append(txn.Actions, action)
 }
 
-func (txn *Transaction) Mutate(tableName string, mutations []interface{}) {
-	//action := map[string]interface{}{}
-	//
-	//action["op"] = "mutate"
-	//action["table"] = tableName
-	//action["where"] = []interface{}{}
-	//action["mutations"] = mutations
-	//
-	//txn.Actions = append(txn.Actions, action)
+func (txn *Transaction) Mutate(tableName string, conditions [][]string, mutations [][]interface{}) {
+	action := map[string]interface{}{}
+
+	action["op"] = "mutate"
+	action["table"] = tableName
+	action["where"] = conditions
+	action["mutations"] = mutations
+
+	txn.Actions = append(txn.Actions, action)
 }
 
 func (txn *Transaction) Delete(tableName string, conditions [][]string) {
