@@ -6,8 +6,8 @@ import (
 	"math/rand"
 	"time"
 	"encoding/json"
-	"./dbmonitor"
-	"./dbtransaction"
+	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbmonitor"
+	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbtransaction"
 	"errors"
 	)
 

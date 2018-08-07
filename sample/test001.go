@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	"../ovsdb"
-	//"../ovsdb/dbmonitor"
-	"../ovsdb/ovshelper"
+	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/ovsdb"
+	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbmonitor"
+	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/ovshelper"
 	//"../ovsdb/entities"
 	"encoding/json"
+	//"time"
 	"time"
 )
 
@@ -46,70 +47,6 @@ func main() {
 		return
 	}
 
-
-	// fetch references
-	txn := db.Transaction("Open_vSwitch")
-	txn.Wait(2000, "Open_vSwitch", [][]string{}, []string{"bridges"}, "!=", []interface{}{})
-	txn.Select("Open_vSwitch", []string{"bridges"}, [][]string{})
-	txn.Select("Bridge", []string{"_uuid"}, [][]string{{"name", "==", "Test Bridge"}})
-	go func(){
-		txn.Commit()
-	}()
-
-	time.AfterFunc(500, func(){
-		txn.Cancel()
-	})
-	time.AfterFunc(1000, func(){
-		db.ListDbs()
-	})
-
-	//// build data
-	//var bridges []interface{}
-	//bridgeResult := res[0].Rows[0].(map[string]interface{})["bridges"].([]interface{})
-	//if bridgeResult[0] == "set" {
-	//	bridges = bridgeResult[1].([]interface{})
-	//} else { // single entry
-	//	bridges = []interface{}{bridgeResult}
-	//}
-	//
-	//// delete bridge
-	//var bridgeUUID string
-	//if len(res[1].Rows) == 1 {
-	//	bridgeUUID = res[1].Rows[0].(map[string]interface{})["_uuid"].([]interface{})[1].(string)
-	//	for idx, bridge := range bridges {
-	//		if bridge.([]interface{})[1] == bridgeUUID {
-	//			bridges[idx] = bridges[len(bridges)-1]
-	//			bridges = bridges[:len(bridges)-1]
-	//		}
-	//	}
-	//
-	//	txn2 := db.Transaction("Open_vSwitch")
-	//	txn2.Update("Open_vSwitch", map[string]interface{}{
-	//		"bridges": []interface{}{
-	//			"set",
-	//			bridges,
-	//		},
-	//	})
-	//	txn2.Commit()
-	//}
-	//
-	//bridge := ovshelper.Bridge{
-	//	Name: "Test Bridge",
-	//}
-	//
-	//// store bridge and reference
-	//txn2 := db.Transaction("Open_vSwitch")
-	//bridgeTempId := txn2.Insert("Bridge", bridge)
-	//bridges = append(bridges, []interface{}{"named-uuid", bridgeTempId})
-	//txn2.Update("Open_vSwitch", map[string]interface{}{
-	//	"bridges": []interface{}{
-	//		"set",
-	//		bridges,
-	//	},
-	//})
-	//fmt.Println(txn2.Commit())
-
-
 	// register lock notification
 	//db.RegisterLockedCallback(lockedNotification)
 	//db.RegisterStolenCallback(stolenNotification)
@@ -121,14 +58,63 @@ func main() {
 	//json.Unmarshal(response, &schema)
 	//fmt.Println("bridge:", schema.Tables["Bridge"])
 
-	//monitor := db.Monitor("Open_vSwitch")
-	//monitor.Register("Bridge", dbmonitor.Table{
-	//	Columns:[]string{
-	//		"name",
-	//	},
-	//	Select: dbmonitor.Select{ Insert: true, },
-	//})
-	//monitor.Start(updateCallback)
+	loop := true
+	updateCount := 0
+
+	monitor := db.Monitor("Open_vSwitch")
+	monitor.Register("Open_vSwitch", dbmonitor.Table{
+		Columns:[]string{
+			"next_cfg",
+		},
+		Select: dbmonitor.Select{ Modify: true, },
+	})
+	monitor.Start(func(response json.RawMessage) {
+		updateCount += 1
+		var update struct{
+			Open_vSwitch map[string]interface{}
+		}
+		json.Unmarshal(response, &update)
+
+		if update.Open_vSwitch != nil {
+			loop = false
+		}
+	})
+
+	// dial in
+	//db2, err := ovsdb.Dial("tcp", ":12345") //db, err := ovsdb.Dial("unix", "/run/openvswitch/db.sock")
+	//if err != nil {
+	//	fmt.Println("unable to dial: " + err.Error())
+	//	return
+	//}
+
+	txn := db.Transaction("Open_vSwitch")
+	txn.Mutate("Open_vSwitch", [][]string{}, [][]interface{}{{"next_cfg", "+=", 1}})
+	resp, err := txn.Commit()
+	fmt.Println(resp, err)
+
+	time.AfterFunc(time.Millisecond * 300, func(){
+		//t.Error("Transaction monitor timeout")
+		fmt.Println("error")
+		loop = false
+	})
+
+	monitor.Cancel()
+
+	txn2 := db.Transaction("Open_vSwitch")
+	txn2.Mutate("Open_vSwitch", [][]string{}, [][]interface{}{{"next_cfg", "+=", 1}})
+	resp2, err2 := txn2.Commit()
+	fmt.Println(resp2, err2)
+
+	for loop {
+
+	}
+
+	if updateCount > 1 {
+		fmt.Println("errors 2")
+	}
+
+	fmt.Println("jo")
+
 	//
 	//txn0 := db.Transaction("Open_vSwitch")
 	//txn0.Select("Open_vSwitch", []string{"bridges"})
@@ -183,9 +169,9 @@ func main() {
 	//	fmt.Println(res2)
 	//}
 
-	for true {
-
-	}
+	//for true {
+	//
+	//}
 
 	fmt.Println(db.Close())
 }

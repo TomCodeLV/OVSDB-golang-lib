@@ -3,9 +3,8 @@ package ovsdb
 import (
 	"testing"
 	"encoding/json"
-	"./ovshelper"
-	"./dbmonitor"
-	"fmt"
+	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/ovshelper"
+	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbmonitor"
 	"time"
 )
 
@@ -150,7 +149,7 @@ func TestOVSDB_Transaction(t *testing.T) {
 			bridges,
 		},
 	})
-	_, err3 := fmt.Println(txn3.Commit())
+	_, err3 := txn3.Commit()
 	if err3 != nil {
 		t.Error("Insert failed")
 	}
