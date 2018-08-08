@@ -262,3 +262,20 @@ func (ovsdb *OVSDB) Unlock(id string) (interface{}, error) {
 	return lock, err
 }
 
+// Helper function for retrieving data from ovsdb set column.
+func GetSet(data []interface{}) []interface{} {
+	// if there is multiple entries data are returned as set
+	if data[0] == "set" {
+		return data[1].([]interface{})
+	} else { // if there is one entry it is returned as single value
+		return []interface{}{data}
+	}
+}
+
+// Helper function to create ovsdb set
+func MakeSet(data []interface{}) []interface{} {
+	return []interface{}{
+		"set",
+		data,
+	}
+}

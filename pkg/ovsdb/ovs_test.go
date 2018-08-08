@@ -104,11 +104,7 @@ func TestOVSDB_Transaction(t *testing.T) {
 	// build data
 	var bridges []interface{}
 	bridgeResult := res[0].Rows[0].(map[string]interface{})["bridges"].([]interface{})
-	if bridgeResult[0] == "set" {
-		bridges = bridgeResult[1].([]interface{})
-	} else { // single entry
-		bridges = []interface{}{bridgeResult}
-	}
+	bridges = GetSet(bridgeResult)
 
 	// delete bridge
 	var bridgeUUID string
@@ -123,10 +119,7 @@ func TestOVSDB_Transaction(t *testing.T) {
 
 		txn2 := db.Transaction("Open_vSwitch")
 		txn2.Update("Open_vSwitch", map[string]interface{}{
-			"bridges": []interface{}{
-				"set",
-				bridges,
-			},
+			"bridges": MakeSet(bridges),
 		})
 		_, err2 := txn.Commit()
 		if err2 != nil {
@@ -144,10 +137,7 @@ func TestOVSDB_Transaction(t *testing.T) {
 	bridgeTempId := txn3.Insert("Bridge", bridge)
 	bridges = append(bridges, []interface{}{"named-uuid", bridgeTempId})
 	txn3.Update("Open_vSwitch", map[string]interface{}{
-		"bridges": []interface{}{
-			"set",
-			bridges,
-		},
+		"bridges": MakeSet(bridges),
 	})
 	_, err3 := txn3.Commit()
 	if err3 != nil {
