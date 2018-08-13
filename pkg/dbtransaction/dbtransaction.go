@@ -100,7 +100,7 @@ func (txn *Transaction) Delete(tableName string, conditions [][]string) {
 	txn.Actions = append(txn.Actions, action)
 }
 
-func (txn *Transaction) Wait(timeout uint64, tableName string,  conditions [][]string, columns []string, until string, rows []interface{}) {
+func (txn *Transaction) Wait(timeout uint64, tableName string,  conditions [][]interface{}, columns []string, until string, rows []interface{}) {
 	action := map[string]interface{}{}
 
 	action["op"] = "wait"

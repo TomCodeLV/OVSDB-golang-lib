@@ -7,9 +7,8 @@ import (
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/ovshelper"
 	//"../ovsdb/entities"
 	"encoding/json"
-	//"time"
-	"time"
-)
+
+	)
 
 func updateCallback(response json.RawMessage) {
 	var update ovshelper.Update
@@ -92,13 +91,13 @@ func main() {
 	resp, err := txn.Commit()
 	fmt.Println(resp, err)
 
-	time.AfterFunc(time.Millisecond * 300, func(){
-		//t.Error("Transaction monitor timeout")
-		fmt.Println("error")
-		loop = false
-	})
-
-	monitor.Cancel()
+	//time.AfterFunc(time.Millisecond * 300, func(){
+	//	//t.Error("Transaction monitor timeout")
+	//	fmt.Println("error")
+	//	loop = false
+	//})
+	//
+	//monitor.Cancel()
 
 	txn2 := db.Transaction("Open_vSwitch")
 	txn2.Mutate("Open_vSwitch", [][]string{}, [][]interface{}{{"next_cfg", "+=", 1}})
