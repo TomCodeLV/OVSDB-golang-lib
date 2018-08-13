@@ -6,6 +6,7 @@ import (
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/ovshelper"
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbmonitor"
 	"time"
+	"fmt"
 )
 
 var network = "tcp" 	// "unix"
@@ -83,7 +84,7 @@ func TestOVSDB_GetSchema(t *testing.T) {
 	}
 }
 
-func TestOVSDB_Transaction(t *testing.T) {
+func TestOVSDB_Transaction_main(t *testing.T) {
 	db, err := Dial(network, address)
 	if err != nil {
 		t.Error("Dial failed")
@@ -110,10 +111,13 @@ func TestOVSDB_Transaction(t *testing.T) {
 	var bridgeUUID string
 	if len(res[1].Rows) == 1 {
 		bridgeUUID = res[1].Rows[0].(map[string]interface{})["_uuid"].([]interface{})[1].(string)
+		fmt.Println(bridgeUUID)
 		for idx, bridge := range bridges {
 			if bridge.([]interface{})[1] == bridgeUUID {
-				bridges[idx] = bridges[len(bridges)-1]
-				bridges = bridges[:len(bridges)-1]
+				//bridges[idx] = bridges[len(bridges)-1]
+				//bridges = bridges[:len(bridges)-1]
+				bridges = append(bridges[:idx], bridges[idx+1:]...)
+				break
 			}
 		}
 
@@ -121,7 +125,7 @@ func TestOVSDB_Transaction(t *testing.T) {
 		txn2.Update("Open_vSwitch", map[string]interface{}{
 			"bridges": MakeSet(bridges),
 		})
-		_, err2 := txn.Commit()
+		_, err2 := txn2.Commit()
 		if err2 != nil {
 			t.Error("Delete failed")
 			return
@@ -134,6 +138,14 @@ func TestOVSDB_Transaction(t *testing.T) {
 
 	// store bridge and reference
 	txn3 := db.Transaction("Open_vSwitch")
+	txn3.Wait(
+		0,
+		"Open_vSwitch",
+		[][]interface{}{},
+		[]string{"bridges"},
+		"==",
+		[]interface{}{map[string]interface{}{"bridges": MakeSet(bridges)}},
+	)
 	bridgeTempId := txn3.Insert("Bridge", bridge)
 	bridges = append(bridges, []interface{}{"named-uuid", bridgeTempId})
 	txn3.Update("Open_vSwitch", map[string]interface{}{
@@ -155,7 +167,7 @@ func TestOVSDB_Transaction_Cancel(t *testing.T) {
 	}
 
 	txn := db.Transaction("Open_vSwitch")
-	txn.Wait(200, "Open_vSwitch", [][]string{}, []string{"bridges"}, "==", []interface{}{})
+	txn.Wait(200, "Open_vSwitch", [][]interface{}{}, []string{"bridges"}, "==", []interface{}{})
 	go func(){
 		txn.Commit()
 		t.Error("Transaction cancel failed")
