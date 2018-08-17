@@ -2,6 +2,7 @@ package ovshelper
 
 type Bridge struct {
 	Name string 	`json:"name"`
+	FailMode string `json:"fail_mode"`
 }
 
 type Port struct {

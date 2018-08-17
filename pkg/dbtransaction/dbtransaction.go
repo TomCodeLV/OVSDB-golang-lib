@@ -41,75 +41,130 @@ func (txn *Transaction) Cancel() {
 	txn.OVSDB.Notify("cancel", args	)
 }
 
-func (txn *Transaction) Select(tableName string, columns []string, conditions [][]string) {
+type Select struct {
+	Table string
+	Columns []string
+	Where [][]string
+}
+
+func (txn *Transaction) Select(s Select) {
 	action := map[string]interface{}{}
 
 	action["op"] = "select"
-	action["table"] = tableName
-	action["where"] = conditions
-	action["columns"] = columns
+	action["table"] = s.Table
+	action["where"] = s.Where
+	action["columns"] = s.Columns
 
 	txn.Actions = append(txn.Actions, action)
 }
 
-func (txn *Transaction) Insert(tableName string, item interface{}) string {
+type Insert struct {
+	Table string
+	Row interface{}
+}
+
+func (txn *Transaction) Insert(i Insert) string {
 	action := map[string]interface{}{}
 
 	tempId := "row" + strconv.Itoa(txn.Counter)
 	txn.Counter++
 
 	action["uuid-name"] = tempId
-	action["row"] = item
+	action["row"] = i.Row
 	action["op"] = "insert"
-	action["table"] = tableName
+	action["table"] = i.Table
 
 	txn.Actions = append(txn.Actions, action)
 
 	return tempId
 }
 
-func (txn *Transaction) Update(tableName string, item interface{}) {
+type Update struct {
+	Table string
+	Where [][]interface{}
+	Row map[string]interface{}
+	WaitRows []interface{}
+}
+
+func (txn *Transaction) Update(u Update) {
+	if u.WaitRows != nil {
+		columns := make([]string, len(u.Row))
+		c := 0
+		for column, _ := range u.Row {
+			columns[c] = column
+			c++
+		}
+
+		txn.Wait(Wait{
+			Table: u.Table,
+			Where: u.Where,
+			Columns: columns,
+			Until: "==",
+			Rows: u.WaitRows,
+		})
+	}
+
 	action := map[string]interface{}{}
 
 	action["op"] = "update"
-	action["table"] = tableName
-	action["where"] = []interface{}{}
-	action["row"] = item
+	action["table"] = u.Table
+	action["where"] = u.Where
+	action["row"] = u.Row
 
 	txn.Actions = append(txn.Actions, action)
 }
 
-func (txn *Transaction) Mutate(tableName string, conditions [][]string, mutations [][]interface{}) {
+type Mutate struct {
+	Table string
+	Where [][]string
+	Mutations [][]interface{}
+}
+
+func (txn *Transaction) Mutate(m Mutate) {
 	action := map[string]interface{}{}
 
 	action["op"] = "mutate"
-	action["table"] = tableName
-	action["where"] = conditions
-	action["mutations"] = mutations
+	action["table"] = m.Table
+	action["where"] = m.Where
+	action["mutations"] = m.Mutations
 
 	txn.Actions = append(txn.Actions, action)
 }
 
-func (txn *Transaction) Delete(tableName string, conditions [][]string) {
+type Delete struct {
+	Table string
+	Where [][]string
+}
+
+func (txn *Transaction) Delete(d Delete) {
 	action := map[string]interface{}{}
 
 	action["op"] = "delete"
-	action["table"] = tableName
-	action["where"] = conditions
+	action["table"] = d.Table
+	action["where"] = d.Where
 
 	txn.Actions = append(txn.Actions, action)
 }
 
-func (txn *Transaction) Wait(timeout uint64, tableName string,  conditions [][]interface{}, columns []string, until string, rows []interface{}) {
+type Wait struct {
+	Timeout uint64
+	Table string
+	Where [][]interface{}
+	Columns []string
+	Until string
+	Rows []interface{}
+}
+
+func (txn *Transaction) Wait(w Wait) {
 	action := map[string]interface{}{}
 
 	action["op"] = "wait"
-	action["timeout"] = timeout
-	action["table"] = tableName
-	action["where"] = conditions
-	action["columns"] = columns
-	action["until"] = until
-	action["rows"] = rows
+	action["timeout"] = w.Timeout
+	action["table"] = w.Table
+	action["where"] = w.Where
+	action["columns"] = w.Columns
+	action["until"] = w.Until
+	action["rows"] = w.Rows
 
 	txn.Actions = append(txn.Actions, action)
 }

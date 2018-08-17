@@ -12,6 +12,11 @@ type iOVSDB interface {
 	GetCounter() uint64
 }
 
+type RowUpdate struct {
+	New map[string]interface{}	`json:"new"`
+	Old map[string]interface{}	`json:"old"`
+}
+
 type Select struct {
 	Initial bool	`json:"initial"`
 	Insert bool		`json:"insert"`
@@ -20,7 +25,7 @@ type Select struct {
 }
 
 type Table struct {
-	Columns []string 	`json:"columns"`
+	Columns []string 	`json:"columns,omitempty"`
 	Select Select 		`json:"select"`
 }
 

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbmonitor"
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbtransaction"
+	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbcache"
 	"errors"
 	)
 
@@ -210,6 +211,10 @@ func (ovsdb *OVSDB) GetSchema(schema string) (json.RawMessage, error) {
 	return ovsdb.Call("get_schema", []string{schema}, nil)
 }
 
+// ===================================
+// ADVANCED FUNCTIONALITY CONSTRUCTORS
+// ===================================
+
 // Transaction returns transaction handle
 func (ovsdb *OVSDB) Transaction(schema string) *dbtransaction.Transaction {
 	txn := new(dbtransaction.Transaction)
@@ -232,6 +237,31 @@ func (ovsdb *OVSDB) Monitor(schema string) *dbmonitor.Monitor {
 
 	return monitor
 }
+
+type Cache struct {
+	Schema string
+	Tables map[string][]string
+	Indexes map[string][]string
+}
+
+func (ovsdb *OVSDB) Cache(c Cache) (*dbcache.Cache, error) {
+	cache := new(dbcache.Cache)
+
+	cache.OVSDB = ovsdb
+	cache.Schema = c.Schema
+	cache.Indexes = c.Indexes
+
+	err := cache.StartMonitor(c.Schema, c.Tables)
+	if err != nil {
+		return nil, err
+	}
+
+	return cache, nil
+}
+
+// =======
+// LOCKING
+// =======
 
 func (ovsdb *OVSDB) RegisterLockedCallback(Callback func(string)) {
 	ovsdb.lockedCallback = Callback
@@ -262,20 +292,4 @@ func (ovsdb *OVSDB) Unlock(id string) (interface{}, error) {
 	return lock, err
 }
 
-// Helper function for retrieving data from ovsdb set column.
-func GetSet(data []interface{}) []interface{} {
-	// if there is multiple entries data are returned as set
-	if data[0] == "set" {
-		return data[1].([]interface{})
-	} else { // if there is one entry it is returned as single value
-		return []interface{}{data}
-	}
-}
 
-// Helper function to create ovsdb set
-func MakeSet(data []interface{}) []interface{} {
-	return []interface{}{
-		"set",
-		data,
-	}
-}
