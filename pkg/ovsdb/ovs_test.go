@@ -6,7 +6,6 @@ import (
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/ovshelper"
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbmonitor"
 	"time"
-	"fmt"
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbtransaction"
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/helpers"
 )
@@ -121,7 +120,6 @@ func TestOVSDB_Transaction_main(t *testing.T) {
 	var bridgeUUID string
 	if len(res[1].Rows) == 1 {
 		bridgeUUID = res[1].Rows[0].(map[string]interface{})["_uuid"].([]interface{})[1].(string)
-		fmt.Println(bridgeUUID)
 		for idx, bridge := range bridges {
 			if bridge.([]interface{})[1] == bridgeUUID {
 				//bridges[idx] = bridges[len(bridges)-1]
@@ -291,7 +289,7 @@ func TestOVSDB_Cache_main(t *testing.T) {
 	// dial in
 	db, err := Dial("tcp", ":12345") //db, err := ovsdb.Dial("unix", "/run/openvswitch/db.sock")
 	if err != nil {
-		fmt.Println("unable to dial: " + err.Error())
+		t.Error("unable to dial: " + err.Error())
 		return
 	}
 
@@ -307,7 +305,7 @@ func TestOVSDB_Cache_main(t *testing.T) {
 		},
 	})
 	if err != nil {
-		fmt.Println(err)
+		t.Error("Cacge failed: " + err.Error())
 	}
 
 	schemaId := cache.GetKeys("Open_vSwitch", "uuid")[0]
