@@ -4,7 +4,9 @@ import (
 	"strconv"
 	"encoding/json"
 	"errors"
-	)
+	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/helpers"
+	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbcache"
+)
 
 type iOVSDB interface {
 	Call(string, interface{}, *uint64) (json.RawMessage, error)
@@ -44,7 +46,7 @@ func (txn *Transaction) Cancel() {
 type Select struct {
 	Table string
 	Columns []string
-	Where [][]string
+	Where [][]interface{}
 }
 
 func (txn *Transaction) Select(s Select) {
@@ -52,8 +54,16 @@ func (txn *Transaction) Select(s Select) {
 
 	action["op"] = "select"
 	action["table"] = s.Table
-	action["where"] = s.Where
-	action["columns"] = s.Columns
+	if s.Where == nil {
+		action["where"] = [][]interface{}{}
+	} else {
+		action["where"] = s.Where
+	}
+	if s.Columns == nil {
+		action["columns"] = []string{}
+	} else {
+		action["columns"] = s.Columns
+	}
 
 	txn.Actions = append(txn.Actions, action)
 }
@@ -108,7 +118,11 @@ func (txn *Transaction) Update(u Update) {
 
 	action["op"] = "update"
 	action["table"] = u.Table
-	action["where"] = u.Where
+	if u.Where == nil {
+		action["where"] = [][]interface{}{}
+	} else {
+		action["where"] = u.Where
+	}
 	action["row"] = u.Row
 
 	txn.Actions = append(txn.Actions, action)
@@ -116,7 +130,7 @@ func (txn *Transaction) Update(u Update) {
 
 type Mutate struct {
 	Table string
-	Where [][]string
+	Where [][]interface{}
 	Mutations [][]interface{}
 }
 
@@ -125,7 +139,11 @@ func (txn *Transaction) Mutate(m Mutate) {
 
 	action["op"] = "mutate"
 	action["table"] = m.Table
-	action["where"] = m.Where
+	if m.Where == nil {
+		action["where"] = [][]interface{}{}
+	} else {
+		action["where"] = m.Where
+	}
 	action["mutations"] = m.Mutations
 
 	txn.Actions = append(txn.Actions, action)
@@ -133,7 +151,7 @@ func (txn *Transaction) Mutate(m Mutate) {
 
 type Delete struct {
 	Table string
-	Where [][]string
+	Where [][]interface{}
 }
 
 func (txn *Transaction) Delete(d Delete) {
@@ -182,10 +200,105 @@ func (txn *Transaction) Commit() (Transact, error) {
 	var t Transact
 	json.Unmarshal(response, &t)
 
+	for _, res := range t {
+		if res.Error != "" {
+			return nil, errors.New(res.Error + ": " + res.Details)
+		}
+	}
+
 	// we have an error
 	if len(t) > len(txn.Actions) {
 		return nil, errors.New(t[len(t)-1].Error + ": " + t[len(t)-1].Details)
 	}
 
 	return t, nil
+}
+
+// ==================
+// HELPER FUNCTIONS
+// ==================
+
+type DeleteReferences struct {
+	Table string
+	WhereId string
+	ReferenceColumn string
+	DeleteIdsList []string
+	CurrentIdsList []string // can be passed for performance reasons
+	Wait bool
+	Cache *dbcache.Cache
+}
+
+func (txn *Transaction) DeleteReferences(dr DeleteReferences) *Transaction {
+	var bridgeIdList []string
+	if dr.CurrentIdsList != nil {
+		bridgeIdList = dr.CurrentIdsList
+	} else {
+		bridgeIdList = dr.Cache.GetKeys(dr.Table, "uuid", dr.WhereId, dr.ReferenceColumn)
+	}
+
+	newBridgeIdList := helpers.RemoveFromIdList(bridgeIdList, dr.DeleteIdsList)
+
+	update := Update{
+		Table: dr.Table,
+		Where: [][]interface{}{{"_uuid", "==", []string{"uuid", dr.WhereId}}},
+		Row: map[string]interface{}{
+			dr.ReferenceColumn: helpers.MakeOVSDBSet(map[string]interface{}{
+				"uuid": newBridgeIdList,
+			}),
+		},
+	}
+
+	if dr.Wait {
+		update.WaitRows = []interface{}{map[string]interface{}{
+			dr.ReferenceColumn: helpers.MakeOVSDBSet(map[string]interface{}{
+				"uuid": bridgeIdList,
+			}),
+		}}
+	}
+
+	txn.Update(update)
+
+	return txn
+}
+
+type InsertReferences struct {
+	Table string
+	WhereId string
+	ReferenceColumn string
+	InsertIdsList []string
+	CurrentIdsList []string
+	Wait bool
+	Cache *dbcache.Cache
+}
+
+func (txn *Transaction) InsertReferences(ir InsertReferences) *Transaction {
+	var bridgeIdList []string
+	if ir.CurrentIdsList != nil {
+		bridgeIdList = ir.CurrentIdsList
+	} else {
+		bridgeIdList = ir.Cache.GetKeys(ir.Table, "uuid", ir.WhereId, ir.ReferenceColumn)
+	}
+
+	update := Update{
+		Table: ir.Table,
+		Where: [][]interface{}{{"_uuid", "==", []string{"uuid", ir.WhereId}}},
+		Row: map[string]interface{}{
+			ir.ReferenceColumn: helpers.MakeOVSDBSet(map[string]interface{}{
+				"uuid": bridgeIdList,
+				"named-uuid": ir.InsertIdsList,
+			}),
+		},
+	}
+
+	if ir.Wait {
+		update.WaitRows = []interface{}{map[string]interface{}{
+			ir.ReferenceColumn: helpers.MakeOVSDBSet(map[string]interface{}{
+				"uuid": bridgeIdList,
+			}),
+		}}
+	}
+
+	txn.Update(update)
+
+	return txn
 }

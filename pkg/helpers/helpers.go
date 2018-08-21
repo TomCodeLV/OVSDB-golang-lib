@@ -5,32 +5,42 @@ package helpers
 // =======
 
 // Helper function for retrieving data from ovsdb set column.
-func GetSet(data []interface{}) []interface{} {
+func GetIdListFromOVSDBSet(data []interface{}) []string {
 	// if there is multiple entries data are returned as set
 	if data[0] == "set" {
-		return data[1].([]interface{})
+		ret := []string{}
+		for _, val := range data[1].([]interface{}) {
+			ret = append(ret, val.([]interface{})[1].(string))
+		}
+		return ret
 	} else { // if there is one entry it is returned as single value
-		return []interface{}{data}
+		return []string{data[1].(string)}
 	}
 }
 
 // Helper function to create ovsdb set
-func MakeSet(data []interface{}) []interface{} {
+func MakeOVSDBSet(data map[string]interface{}) []interface{} {
+	list := []interface{}{}
+	for key, l := range data {
+		for _, v := range l.([]string) {
+			list = append(list, []string{key, v})
+		}
+	}
 	return []interface{}{
 		"set",
-		data,
+		list,
 	}
 }
 
-func RemoveFromUUIDList(UUIDList []interface{}, idsList []string) []interface{} {
-	idMap := make(map[string]bool, len(UUIDList))
+func RemoveFromIdList(list []string, idsList []string) []string {
+	idMap := make(map[string]bool, len(idsList))
 	for _, val := range idsList {
 		idMap[val] = true
 	}
 
-	ret := make([]interface{}, 0)
-	for _, uuid := range UUIDList {
-		if _, ok := idMap[uuid.([]interface{})[1].(string)]; !ok {
+	ret := make([]string, 0)
+	for _, uuid := range list {
+		if _, ok := idMap[uuid]; !ok {
 			ret = append(ret, uuid)
 		}
 	}

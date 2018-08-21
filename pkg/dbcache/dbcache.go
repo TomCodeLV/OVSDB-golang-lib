@@ -65,7 +65,7 @@ func normalize (data interface{}) interface{} {
 				switch a[1].([]interface{})[0].(type) {
 				case []interface{}: // we have a list of uuid pairs [["uuid", "some-value"]]
 					for _, val := range a[1].([]interface{}) {
-						m[val.([]interface{})[1].(string)] = val
+						m[val.([]interface{})[1].(string)] = normalize(val)
 					}
 				default: // we have a list of strings, numbers or booleans
 					for _, val := range a[1].([]interface{}) {
@@ -90,7 +90,7 @@ func normalize (data interface{}) interface{} {
 			// single uuid is returned when set has single entry
 			// in case we have single uuid, we convert it to single element set
 			m := map[string]interface{}{}
-			m[a[1].(string)] = a
+			m[a[1].(string)] = a[1]
 			return m
 		}
 	default:
@@ -168,8 +168,14 @@ func (cache *Cache) update(response json.RawMessage) error {
 func (cache *Cache) getData(args ...string) interface{} {
 	var ret interface{}
 	ret = cache.Data
+	if ret == nil {
+		return map[string]interface{}{}
+	}
 	for _, val := range args {
 		ret = ret.(map[string]interface{})[val]
+		if ret == nil {
+			return map[string]interface{}{}
+		}
 	}
 	return ret
 }
@@ -203,10 +209,11 @@ func deepCopy(data interface{}) interface{} {
 
 func (cache *Cache) GetList(args ...string) []interface{} {
 	cache.RLock()
-	data := cache.getData(args...).(map[string]interface{})
-	list := make([]interface{}, len(data))
+	data := cache.getData(args...)
+	d := data.(map[string]interface{})
+	list := make([]interface{}, len(d))
 	c := 0
-	for _, val := range data {
+	for _, val := range d {
 		list[c] = deepCopy(val)
 		c++
 	}
@@ -218,9 +225,6 @@ func (cache *Cache) GetList(args ...string) []interface{} {
 func (cache *Cache) GetMap(args ...string) map[string]interface{} {
 	cache.RLock()
 	data := cache.getData(args...)
-	if data == nil {
-		return nil
-	}
 	m := make(map[string]interface{})
 	for key, val := range data.(map[string]interface{}) {
 		m[key] = deepCopy(val)

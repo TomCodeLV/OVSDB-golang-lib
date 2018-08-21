@@ -8,7 +8,7 @@ import (
 	"time"
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbtransaction"
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/helpers"
-)
+	)
 
 var network = "tcp" 	// "unix"
 var address = ":12345" 	// "/run/openvswitch/db.sock"
@@ -96,14 +96,13 @@ func TestOVSDB_Transaction_main(t *testing.T) {
 	// fetch references
 	txn := db.Transaction("Open_vSwitch")
 	txn.Select(dbtransaction.Select{
-		"Open_vSwitch",
-		[]string{"bridges"},
-		[][]string{},
+		Table: "Open_vSwitch",
+		Columns: []string{"bridges"},
 	})
 	txn.Select(dbtransaction.Select{
-		"Bridge",
-		[]string{"_uuid"},
-		[][]string{{"name", "==", "Test Bridge"}},
+		Table: "Bridge",
+		Columns: []string{"_uuid"},
+		Where: [][]interface{}{{"name", "==", "Test Bridge"}},
 	})
 	res, err := txn.Commit()
 	if err != nil {
@@ -112,18 +111,16 @@ func TestOVSDB_Transaction_main(t *testing.T) {
 	}
 
 	// build data
-	var bridges []interface{}
+	var bridges []string
 	bridgeResult := res[0].Rows[0].(map[string]interface{})["bridges"].([]interface{})
-	bridges = helpers.GetSet(bridgeResult)
+	bridges = helpers.GetIdListFromOVSDBSet(bridgeResult)
 
 	// delete bridge
 	var bridgeUUID string
 	if len(res[1].Rows) == 1 {
 		bridgeUUID = res[1].Rows[0].(map[string]interface{})["_uuid"].([]interface{})[1].(string)
-		for idx, bridge := range bridges {
-			if bridge.([]interface{})[1] == bridgeUUID {
-				//bridges[idx] = bridges[len(bridges)-1]
-				//bridges = bridges[:len(bridges)-1]
+		for idx, bridgeId := range bridges {
+			if bridgeId == bridgeUUID {
 				bridges = append(bridges[:idx], bridges[idx+1:]...)
 				break
 			}
@@ -133,11 +130,14 @@ func TestOVSDB_Transaction_main(t *testing.T) {
 		txn2.Update(dbtransaction.Update{
 			Table: "Open_vSwitch",
 			Row: map[string]interface{}{
-				"bridges": helpers.MakeSet(bridges),
+				"bridges": helpers.MakeOVSDBSet(map[string]interface{}{
+					"uuid": bridges,
+				}),
 			},
 		})
 		_, err2 := txn2.Commit()
 		if err2 != nil {
+			t.Error(err2)
 			t.Error("Delete failed")
 			return
 		}
@@ -150,26 +150,33 @@ func TestOVSDB_Transaction_main(t *testing.T) {
 	// store bridge and reference
 	txn3 := db.Transaction("Open_vSwitch")
 	txn3.Wait(dbtransaction.Wait{
-		0,
-		"Open_vSwitch",
-		[][]interface{}{},
-		[]string{"bridges"},
-		"==",
-		[]interface{}{map[string]interface{}{"bridges": helpers.MakeSet(bridges)}},
+		Timeout: 0,
+		Table: "Open_vSwitch",
+		Where: [][]interface{}{},
+		Columns: []string{"bridges"},
+		Until: "==",
+		Rows: []interface{}{map[string]interface{}{
+			"bridges": helpers.MakeOVSDBSet(map[string]interface{}{
+				"uuid": bridges,
+			},
+		)}},
 	})
 	bridgeTempId := txn3.Insert(dbtransaction.Insert{
-		"Bridge",
-		bridge,
+		Table: "Bridge",
+		Row: bridge,
 	})
-	bridges = append(bridges, []interface{}{"named-uuid", bridgeTempId})
 	txn3.Update(dbtransaction.Update{
 		Table:"Open_vSwitch",
 		Row: map[string]interface{}{
-			"bridges": helpers.MakeSet(bridges),
+			"bridges": helpers.MakeOVSDBSet(map[string]interface{}{
+				"uuid": bridges,
+				"named-uuid": []string{bridgeTempId},
+			}),
 		},
 	})
 	_, err3 := txn3.Commit()
 	if err3 != nil {
+		t.Error(err3)
 		t.Error("Insert failed")
 	}
 }
@@ -249,7 +256,6 @@ func TestOVSDB_Monitor_And_Mutate(t *testing.T) {
 	txn := db.Transaction("Open_vSwitch")
 	txn.Mutate(dbtransaction.Mutate{
 		Table: "Open_vSwitch",
-		Where: [][]string{},
 		Mutations: [][]interface{}{{"next_cfg", "+=", 1}},
 	})
 	_, err2 := txn.Commit()
@@ -271,7 +277,6 @@ func TestOVSDB_Monitor_And_Mutate(t *testing.T) {
 	txn2 := db.Transaction("Open_vSwitch")
 	txn2.Mutate(dbtransaction.Mutate{
 		Table: "Open_vSwitch",
-		Where: [][]string{},
 		Mutations: [][]interface{}{{"next_cfg", "+=", 1}},
 	})
 	txn2.Commit()
@@ -287,7 +292,7 @@ func TestOVSDB_Monitor_And_Mutate(t *testing.T) {
 
 func TestOVSDB_Cache_main(t *testing.T) {
 	// dial in
-	db, err := Dial("tcp", ":12345") //db, err := ovsdb.Dial("unix", "/run/openvswitch/db.sock")
+	db, err := Dial(network, address) //db, err := ovsdb.Dial("unix", "/run/openvswitch/db.sock")
 	if err != nil {
 		t.Error("unable to dial: " + err.Error())
 		return
@@ -309,28 +314,32 @@ func TestOVSDB_Cache_main(t *testing.T) {
 	}
 
 	schemaId := cache.GetKeys("Open_vSwitch", "uuid")[0]
-	bridgeList := cache.GetList("Open_vSwitch", "uuid", schemaId, "bridges")
+	bridgeIdList := cache.GetKeys("Open_vSwitch", "uuid", schemaId, "bridges")
 	deleteBridge := cache.GetMap("Bridge", "name", "TEST")
 
 	// delete old bridge
-	if deleteBridge != nil {
-		newBridgeList := helpers.RemoveFromUUIDList(bridgeList, []string{deleteBridge["uuid"].(string)})
+	if _, ok := deleteBridge["uuid"]; ok {
+		newBridgeIdList := helpers.RemoveFromIdList(bridgeIdList, []string{deleteBridge["uuid"].(string)})
 
 		txn := db.Transaction("Open_vSwitch")
 		txn.Update(dbtransaction.Update{
 			Table: "Open_vSwitch",
 			Where: [][]interface{}{{"_uuid", "==", []string{"uuid", schemaId}}},
 			Row: map[string]interface{}{
-				"bridges": helpers.MakeSet(newBridgeList),
+				"bridges": helpers.MakeOVSDBSet(map[string]interface{}{
+					"uuid": newBridgeIdList,
+				}),
 			},
 			WaitRows: []interface{}{map[string]interface{}{
-				"bridges": helpers.MakeSet(bridgeList),
+				"bridges": helpers.MakeOVSDBSet(map[string]interface{}{
+					"uuid": bridgeIdList,
+				}),
 			}},
 		})
 		txn.Commit()
 	}
 
-	bridgeList = cache.GetList("Open_vSwitch", "uuid", schemaId, "bridges")
+	bridgeIdList = cache.GetKeys("Open_vSwitch", "uuid", schemaId, "bridges")
 
 	bridge := ovshelper.Bridge{
 		Name: "TEST",
@@ -342,15 +351,19 @@ func TestOVSDB_Cache_main(t *testing.T) {
 		Table: "Bridge",
 		Row: bridge,
 	})
-	newBridgeList := helpers.AppendNamedUUIDToUUIDList(bridgeList, []string{bridgeTempId})
 	txn.Update(dbtransaction.Update{
 		Table: "Open_vSwitch",
 		Where: [][]interface{}{{"_uuid", "==", []string{"uuid", schemaId}}},
 		Row: map[string]interface{}{
-			"bridges": helpers.MakeSet(newBridgeList),
+			"bridges": helpers.MakeOVSDBSet(map[string]interface{}{
+				"uuid": bridgeIdList,
+				"named-uuid": []string{bridgeTempId},
+			}),
 		},
 		WaitRows: []interface{}{map[string]interface{}{
-			"bridges": helpers.MakeSet(bridgeList),
+			"bridges": helpers.MakeOVSDBSet(map[string]interface{}{
+				"uuid": bridgeIdList,
+			}),
 		}},
 	})
 	txn.Commit()
@@ -359,6 +372,192 @@ func TestOVSDB_Cache_main(t *testing.T) {
 	if someBridge == nil {
 		t.Error("Cache failed")
 		return
+	}
+}
+
+func TestOVSDB_Advanced_first(t *testing.T) {
+	// dial in
+	db, err := Dial(network, address) //db, err := ovsdb.Dial("unix", "/run/openvswitch/db.sock")
+	if err != nil {
+		t.Error("Dial failed")
+	} else {
+		defer db.Close()
+	}
+
+	// initialize cache
+	cache, err := db.Cache(Cache{
+		Schema: "Open_vSwitch",
+		Tables: map[string][]string{
+			"Open_vSwitch": nil,
+			"Bridge": nil,
+			"Port": nil,
+		},
+		Indexes: map[string][]string{
+			"Bridge": {"name"},
+			"Port": {"name"},
+		},
+	})
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	schemaId := cache.GetKeys("Open_vSwitch", "uuid")[0]
+	bridgeIdList := cache.GetKeys("Open_vSwitch", "uuid", schemaId, "bridges")
+	bridgeId, ok := cache.GetMap("Bridge", "name", "TEST_BRIDGE")["uuid"].(string)
+
+	if ok {
+		newBridgeIdList := helpers.RemoveFromIdList(bridgeIdList, []string{bridgeId})
+		txn := db.Transaction("Open_vSwitch")
+		txn.Update(dbtransaction.Update{
+			Table: "Open_vSwitch",
+			Where: [][]interface{}{{"_uuid", "==", []string{"uuid", schemaId}}},
+			Row: map[string]interface{}{
+				"bridges": helpers.MakeOVSDBSet(map[string]interface{}{
+					"uuid": newBridgeIdList,
+				}),
+			},
+			WaitRows: []interface{}{map[string]interface{}{
+				"bridges": helpers.MakeOVSDBSet(map[string]interface{}{
+					"uuid": bridgeIdList,
+				}),
+			}},
+		})
+		_, err := txn.Commit()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+	}
+
+
+	bridgeIdList = cache.GetKeys("Open_vSwitch", "uuid", schemaId, "bridges")
+	txn := db.Transaction("Open_vSwitch")
+	interf := ovshelper.Interface{
+		Name: "TEST_INTERFACE",
+	}
+	newInterfId := txn.Insert(dbtransaction.Insert{
+		Table: "Interface",
+		Row: interf,
+	})
+	port := ovshelper.Port{
+		Name: "TEST_PORT",
+		Interfaces: helpers.MakeOVSDBSet(map[string]interface{}{
+			"named-uuid": []string{newInterfId},
+		}),
+	}
+	newPortId := txn.Insert(dbtransaction.Insert{
+		Table: "Port",
+		Row: port,
+	})
+	bridge := ovshelper.Bridge{
+		Name: "TEST_BRIDGE",
+		Ports: helpers.MakeOVSDBSet(map[string]interface{}{
+			"named-uuid": []string{newPortId},
+		}),
+	}
+	newBridgeId := txn.Insert(dbtransaction.Insert{
+		Table: "Bridge",
+		Row: bridge,
+	})
+	txn.Update(dbtransaction.Update{
+		Table: "Open_vSwitch",
+		Where: [][]interface{}{{"_uuid", "==", []string{"uuid", schemaId}}},
+		Row: map[string]interface{}{
+			"bridges": helpers.MakeOVSDBSet(map[string]interface{}{
+				"uuid": bridgeIdList,
+				"named-uuid": []string{newBridgeId},
+			}),
+		},
+		WaitRows: []interface{}{map[string]interface{}{
+			"bridges": helpers.MakeOVSDBSet(map[string]interface{}{
+				"uuid": bridgeIdList,
+			}),
+		}},
+	})
+	_, err = txn.Commit()
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestOVSDB_Advanced_Helpers(t *testing.T) {
+	// dial in
+	db, err := Dial(network, address) //db, err := ovsdb.Dial("unix", "/run/openvswitch/db.sock")
+	if err != nil {
+		t.Error("Dial failed")
+	} else {
+		defer db.Close()
+	}
+
+	// initialize cache
+	cache, err := db.Cache(Cache{
+		Schema: "Open_vSwitch",
+		Tables: map[string][]string{
+			"Open_vSwitch": nil,
+			"Bridge": nil,
+			"Port": nil,
+		},
+		Indexes: map[string][]string{
+			"Bridge": {"name"},
+			"Port": {"name"},
+		},
+	})
+	if err != nil {
+		t.Error(err)
+	}
+
+	schemaId := cache.GetKeys("Open_vSwitch", "uuid")[0]
+	bridgeId, ok := cache.GetMap("Bridge", "name", "TEST_BRIDGE")["uuid"].(string)
+
+	if ok {
+		// delete old bridge
+		db.Transaction("Open_vSwitch").DeleteReferences(dbtransaction.DeleteReferences{
+			Table: "Open_vSwitch",
+			WhereId: schemaId,
+			ReferenceColumn: "bridges",
+			DeleteIdsList: []string{bridgeId},
+			Wait: true,
+			Cache: cache,
+		}).Commit()
+	}
+
+	txn := db.Transaction("Open_vSwitch")
+	newInterfaceId := txn.Insert(dbtransaction.Insert{
+		Table: "Interface",
+		Row: ovshelper.Interface{
+			Name: "TEST_INTERFACE",
+		},
+	})
+	newPortId := txn.Insert(dbtransaction.Insert{
+		Table: "Port",
+		Row: ovshelper.Port{
+			Name: "TEST_PORT",
+			Interfaces: helpers.MakeOVSDBSet(map[string]interface{}{
+				"named-uuid": []string{newInterfaceId},
+			}),
+		},
+	})
+	newBridgeId := txn.Insert(dbtransaction.Insert{
+		Table: "Bridge",
+		Row: ovshelper.Bridge{
+			Name: "TEST_BRIDGE",
+			Ports: helpers.MakeOVSDBSet(map[string]interface{}{
+				"named-uuid": []string{newPortId},
+			}),
+		},
+	})
+	txn.InsertReferences(dbtransaction.InsertReferences{
+		Table: "Open_vSwitch",
+		WhereId: schemaId,
+		ReferenceColumn: "bridges",
+		InsertIdsList: []string{newBridgeId},
+		Wait: true,
+		Cache: cache,
+	})
+	_, err = txn.Commit()
+	if err != nil {
+		t.Error(err)
 	}
 }
 
