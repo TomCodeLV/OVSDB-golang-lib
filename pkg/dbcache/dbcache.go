@@ -92,6 +92,9 @@ func normalize (data interface{}) interface{} {
 			m := map[string]interface{}{}
 			m[a[1].(string)] = a[1]
 			return m
+		} else {
+			// we have a pair, key is stored previously in map
+			return a[1]
 		}
 	default:
 		return data
