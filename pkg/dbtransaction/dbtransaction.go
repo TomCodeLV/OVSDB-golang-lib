@@ -189,7 +189,7 @@ func (txn *Transaction) Wait(w Wait) {
 
 // Commit stores all staged changes in DB. It manages references in main table
 // automatically.
-func (txn *Transaction) Commit() (Transact, error) {
+func (txn *Transaction) Commit() (Transact, error, bool) {
 	args := []interface {}{txn.Schema}
 	args = append(args, txn.Actions...)
 
@@ -202,16 +202,20 @@ func (txn *Transaction) Commit() (Transact, error) {
 
 	for _, res := range t {
 		if res.Error != "" {
-			return nil, errors.New(res.Error + ": " + res.Details)
+			if res.Error == "timed out" {
+				return nil, errors.New(res.Error + ": " + res.Details), true
+			} else {
+				return nil, errors.New(res.Error + ": " + res.Details), false
+			}
 		}
 	}
 
 	// we have an error
 	if len(t) > len(txn.Actions) {
-		return nil, errors.New(t[len(t)-1].Error + ": " + t[len(t)-1].Details)
+		return nil, errors.New(t[len(t)-1].Error + ": " + t[len(t)-1].Details), false
 	}
 
-	return t, nil
+	return t, nil, false
 }
 
 // ==================
@@ -226,6 +230,7 @@ type DeleteReferences struct {
 	CurrentIdsList []string // can be passed for performance reasons
 	Wait bool
 	Cache *dbcache.Cache
+	LockChannel chan int // used for locking for testing purposes
 }
 
 func (txn *Transaction) DeleteReferences(dr DeleteReferences) *Transaction {
@@ -257,6 +262,11 @@ func (txn *Transaction) DeleteReferences(dr DeleteReferences) *Transaction {
 	}
 
 	txn.Update(update)
+
+	// lock for testing purposes
+	if dr.LockChannel != nil {
+		<- dr.LockChannel
+	}
 
 	return txn
 }

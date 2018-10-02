@@ -1,6 +1,7 @@
 package ovsdb
 
 import (
+	"fmt"
 	"testing"
 	"encoding/json"
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/ovshelper"
@@ -10,8 +11,11 @@ import (
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/helpers"
 	)
 
-var network = "tcp" 	// "unix"
-var address = ":12345" 	// "/run/openvswitch/db.sock"
+//var network = "tcp" 	// "unix"
+//var address = ":12345" 	// "/run/openvswitch/db.sock"
+
+var network = "unix"
+var address = "/run/openvswitch/db.sock"
 
 func TestDial(t *testing.T) {
 	db, err := Dial(network, address)
@@ -104,7 +108,7 @@ func TestOVSDB_Transaction_main(t *testing.T) {
 		Columns: []string{"_uuid"},
 		Where: [][]interface{}{{"name", "==", "Test Bridge"}},
 	})
-	res, err := txn.Commit()
+	res, err, _ := txn.Commit()
 	if err != nil {
 		t.Error("Select failed")
 		return
@@ -135,7 +139,7 @@ func TestOVSDB_Transaction_main(t *testing.T) {
 				}),
 			},
 		})
-		_, err2 := txn2.Commit()
+		_, err2, _ := txn2.Commit()
 		if err2 != nil {
 			t.Error(err2)
 			t.Error("Delete failed")
@@ -174,7 +178,7 @@ func TestOVSDB_Transaction_main(t *testing.T) {
 			}),
 		},
 	})
-	_, err3 := txn3.Commit()
+	_, err3, _ := txn3.Commit()
 	if err3 != nil {
 		t.Error(err3)
 		t.Error("Insert failed")
@@ -210,12 +214,14 @@ func TestOVSDB_Transaction_Cancel(t *testing.T) {
 		txn.Cancel()
 	})
 
-	time.AfterFunc(time.Millisecond * 300, func(){
+	to := time.AfterFunc(time.Millisecond * 300, func(){
 		t.Error("Transaction cancel timeout")
 		loop = false
 	})
 
 	for loop {}
+
+	to.Stop()
 }
 
 func TestOVSDB_Monitor_And_Mutate(t *testing.T) {
@@ -258,12 +264,12 @@ func TestOVSDB_Monitor_And_Mutate(t *testing.T) {
 		Table: "Open_vSwitch",
 		Mutations: [][]interface{}{{"next_cfg", "+=", 1}},
 	})
-	_, err2 := txn.Commit()
+	_, err2, _ := txn.Commit()
 	if err2 != nil {
 		t.Error("Mutate failed")
 	}
 
-	time.AfterFunc(time.Millisecond * 300, func(){
+	to := time.AfterFunc(time.Millisecond * 300, func(){
 		t.Error("Monitor timeout")
 		loop = false
 	})
@@ -288,6 +294,8 @@ func TestOVSDB_Monitor_And_Mutate(t *testing.T) {
 	if updateCount > 1 {
 		t.Error("Monitor cancel failed")
 	}
+
+	to.Stop()
 }
 
 func TestOVSDB_Cache_main(t *testing.T) {
@@ -423,7 +431,7 @@ func TestOVSDB_Advanced_first(t *testing.T) {
 				}),
 			}},
 		})
-		_, err := txn.Commit()
+		_, err, _ := txn.Commit()
 		if err != nil {
 			t.Error(err)
 			return
@@ -475,7 +483,7 @@ func TestOVSDB_Advanced_first(t *testing.T) {
 			}),
 		}},
 	})
-	_, err = txn.Commit()
+	_, err, _ = txn.Commit()
 	if err != nil {
 		t.Error(err)
 	}
@@ -555,10 +563,132 @@ func TestOVSDB_Advanced_Helpers(t *testing.T) {
 		Wait: true,
 		Cache: cache,
 	})
-	_, err = txn.Commit()
+	_, err, _ = txn.Commit()
 	if err != nil {
 		t.Error(err)
 	}
+}
+
+
+func TestOVSDB_Race_Condition(t *testing.T) {
+	to := time.AfterFunc(time.Millisecond * 300, func(){
+		t.Error("Race condition timeout")
+		panic("!!!")
+	})
+
+	// dial in
+	db, err := Dial(network, address)
+	if err != nil {
+		t.Error("Dial failed")
+		fmt.Println(err)
+		return
+	} else {
+		defer db.Close()
+	}
+
+	// initialize cache
+	cache, err := db.Cache(Cache{
+		Schema: "Open_vSwitch",
+		Tables: map[string][]string{
+			"Open_vSwitch": nil,
+			"Bridge":       nil,
+			"Port":         nil,
+		},
+		Indexes: map[string][]string{
+			"Bridge": {"name"},
+			"Port":   {"name"},
+		},
+	})
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	schemaId := cache.GetKeys("Open_vSwitch", "uuid")[0]
+
+	// Insert bridge to delete it later
+	bridgeId, ok := cache.GetMap("Bridge", "name", "TEST_BRIDGE")["uuid"].(string)
+	if !ok {
+		txn := db.Transaction("Open_vSwitch")
+		bridgeId := txn.Insert(dbtransaction.Insert{
+			Table: "Bridge",
+			Row: ovshelper.Bridge{
+				Name: "TEST_BRIDGE",
+			},
+		})
+		txn.InsertReferences(dbtransaction.InsertReferences{
+			Table:           "Open_vSwitch",
+			WhereId:         schemaId,
+			ReferenceColumn: "bridges",
+			InsertIdsList:   []string{bridgeId},
+			Wait:            true,
+			Cache:           cache,
+		})
+		txn.Commit()
+	}
+
+	// Concurrent delete
+	bridgeId, ok = cache.GetMap("Bridge", "name", "TEST_BRIDGE")["uuid"].(string)
+	var concurrentErr error
+	ch := make(chan int, 1)
+	ch2 := make(chan int, 1)
+	go func() {
+		ch2 <- 1
+
+		var retry = true
+		for retry {
+			_, concurrentErr, retry = db.Transaction("Open_vSwitch").DeleteReferences(dbtransaction.DeleteReferences{
+				Table:           "Open_vSwitch",
+				WhereId:         schemaId,
+				ReferenceColumn: "bridges",
+				DeleteIdsList:   []string{bridgeId},
+				Wait:            true,
+				Cache:           cache,
+				LockChannel:     ch,
+			}).Commit()
+		}
+
+		ch2 <- 1
+	}()
+
+	<- ch2
+
+	// Change bridge list to cause concurrent delete to fail
+	bridgeId, ok = cache.GetMap("Bridge", "name", "TEST_BRIDGE2")["uuid"].(string)
+	if ok {
+		// delete old bridge
+		db.Transaction("Open_vSwitch").DeleteReferences(dbtransaction.DeleteReferences{
+			Table:           "Open_vSwitch",
+			WhereId:         schemaId,
+			ReferenceColumn: "bridges",
+			DeleteIdsList:   []string{bridgeId},
+			Wait:            true,
+			Cache:           cache,
+		}).Commit()
+	} else {
+		txn := db.Transaction("Open_vSwitch")
+		bridgeId := txn.Insert(dbtransaction.Insert{
+			Table: "Bridge",
+			Row: ovshelper.Bridge{
+				Name: "TEST_BRIDGE2",
+			},
+		})
+		txn.InsertReferences(dbtransaction.InsertReferences{
+			Table:           "Open_vSwitch",
+			WhereId:         schemaId,
+			ReferenceColumn: "bridges",
+			InsertIdsList:   []string{bridgeId},
+			Wait:            true,
+			Cache:           cache,
+		})
+		txn.Commit()
+	}
+
+	ch <- 1
+	ch <- 1
+
+	<- ch2
+	to.Stop()
 }
 
 

@@ -48,13 +48,13 @@ func RemoveFromIdList(list []string, idsList []string) []string {
 	return ret
 }
 
-func AppendNamedUUIDToUUIDList(UUIDList []interface{}, idsList []string) []interface{} {
-	ret := UUIDList
-	for _, val := range idsList {
-		ret = append(ret, []interface{}{"named-uuid", val})
-	}
-	return ret
-}
+//func AppendNamedUUIDToUUIDList(UUIDList []interface{}, idsList []string) []interface{} {
+//	ret := UUIDList
+//	for _, val := range idsList {
+//		ret = append(ret, []interface{}{"named-uuid", val})
+//	}
+//	return ret
+//}
 
 //func MapToList(data interface{}) []interface{} {
 //	switch data.(type) {
