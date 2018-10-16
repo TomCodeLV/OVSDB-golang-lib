@@ -1,16 +1,18 @@
 package ovsdb
 
 import (
-	"net"
-	"strconv"
-	"math/rand"
-	"time"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbcache"
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbmonitor"
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbtransaction"
-	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbcache"
-	"errors"
-	)
+	"math/rand"
+	"net"
+	"strconv"
+	"sync"
+	"time"
+)
 
 type Lock struct {
 	Locked bool
@@ -20,6 +22,7 @@ type Pending struct {
 	channel  chan int
 	response *json.RawMessage
 	error *json.RawMessage
+	connectionClosed bool
 }
 
 type callback func(interface{})
@@ -35,6 +38,7 @@ type OVSDB struct {
 	lockedCallback func(string)
 	stolenCallback func(string)
 	counter uint64
+	synchronize *Synchronize
 }
 
 // Dial initiates ovsdb session
@@ -63,9 +67,141 @@ func Dial(network, address string) (*OVSDB, error) {
 	return ovsdb, nil
 }
 
+// helper structure for synchronizing db connection and socket reads and writes
+type Synchronize struct {
+	connected customCond
+	initialized customCond
+	socketError customCond
+}
+
+type customCond struct {
+	sync.Mutex
+	cond *sync.Cond
+	val bool
+}
+
+func (p *Synchronize) init() {
+	p.connected = customCond{}
+	p.connected.cond = sync.NewCond(&p.connected)
+
+	p.initialized = customCond{}
+	p.initialized.cond = sync.NewCond(&p.initialized)
+
+	p.socketError = customCond{}
+	p.socketError.cond = sync.NewCond(&p.socketError)
+}
+
+// if not connected waits until connection is established
+func (p *Synchronize) WaitConnected() bool {
+	if !p.connected.val {
+		p.connected.Lock()
+		p.connected.cond.Wait()
+		p.connected.Unlock()
+		return true
+	}
+	return false
+}
+
+func (p *Synchronize) SetConnected() {
+	p.connected.val = true
+	p.socketError.val = false
+	p.connected.cond.Broadcast()
+}
+
+// if not initialized waits until initialization callback is completed
+func (p *Synchronize) WaitInitialized() {
+	if !p.initialized.val {
+		p.initialized.Lock()
+		p.initialized.cond.Wait()
+		p.initialized.Unlock()
+	}
+}
+
+func (p *Synchronize) SetInitialized() {
+	p.initialized.val = true
+	p.initialized.cond.Broadcast()
+}
+
+// if there is no socket error, locks and waits until socket errors
+func (p *Synchronize) WaitError() {
+	if !p.socketError.val {
+		p.socketError.Lock()
+		p.socketError.cond.Wait()
+		p.socketError.Unlock()
+	}
+}
+
+func (p *Synchronize) SetError() {
+	p.socketError.val = true
+	p.connected.val = false
+	p.initialized.val = false
+	p.socketError.cond.Broadcast()
+}
+
+// PersistentDial provides automatic reconnection in case of connection failure.
+// Reconnection will be performed with each provided address.
+// After unsuccessfully trying all addresses it will sleep for 1,2,4,8,8,8,...
+// seconds before trying again.
+// Initialize will be called after every successful connection to db.
+// Function will lock until first successful connect.
+// Returns a pointer to db which will point to new db structure on each connect.
+func PersistentDial(addressList [][]string, initialize func(*OVSDB) error) (**OVSDB) {
+	var db *OVSDB
+	var err	error
+	synchronize := new(Synchronize)
+	synchronize.init()
+
+	idx := 0
+	timeOut := 1
+
+	go func() {
+		for true {
+			network := addressList[idx][0]
+			address := addressList[idx][1]
+			db, err = Dial(network, address)
+			if err != nil {
+				fmt.Println(err)
+				idx = idx + 1
+				if idx == len(addressList) {
+					time.Sleep(time.Duration(timeOut) * time.Second)
+
+					idx = 0
+					if timeOut < 8 {
+						timeOut = timeOut * 2
+					}
+				}
+			} else {
+				idx = 0
+				timeOut = 1
+
+				synchronize.SetConnected()
+
+				db.synchronize = synchronize
+				err = initialize(db)
+				if err!= nil {
+				} else {
+					synchronize.SetInitialized()
+					synchronize.WaitError()
+				}
+			}
+		}
+	}()
+
+	// lock until initialize called
+	synchronize.WaitInitialized()
+
+	return &db
+}
+
 // closes ovsdb network connection
 func (ovsdb *OVSDB) Close() error {
-	return ovsdb.Conn.Close()
+	resp := ovsdb.Conn.Close()
+	// unlock all pending calls
+	for _, val := range ovsdb.pending {
+		val.connectionClosed = true
+		val.channel <- 1
+	}
+	return resp
 }
 
 // incoming message header structure
@@ -84,12 +220,40 @@ type Error struct {
 	Error string	`json:"error"`
 }
 
+
+func (ovsdb *OVSDB) encodeWrapper(v interface{}) error {
+	err := ovsdb.enc.Encode(v)
+	if err != nil {
+		if ovsdb.synchronize != nil {
+			ovsdb.Close()
+			ovsdb.synchronize.SetError()
+			if ovsdb.synchronize != nil { ovsdb.synchronize.WaitConnected() }
+		}
+		return err
+	}
+	return nil
+}
+
+func (ovsdb *OVSDB) decodeWrapper(v *message) error {
+	err := ovsdb.dec.Decode(v)
+	if err != nil {
+		ovsdb.Close()
+		if ovsdb.synchronize != nil {
+			ovsdb.Close()
+			ovsdb.synchronize.SetError()
+			if ovsdb.synchronize != nil { ovsdb.synchronize.WaitConnected() }
+		}
+		return err
+	}
+	return nil
+}
+
 // loop is responsible for receiving all incoming messages
 func (ovsdb *OVSDB) loop() error {
 	for true {
 		var msg message
 		// receive incoming message and store in header structure
-		if err := ovsdb.dec.Decode(&msg); err != nil {
+		if err := ovsdb.decodeWrapper(&msg); err != nil {
 			return err
 		}
 
@@ -100,7 +264,7 @@ func (ovsdb *OVSDB) loop() error {
 				"error":  nil,
 				"id":     "echo",
 			}
-			ovsdb.enc.Encode(resp)
+			ovsdb.encodeWrapper(resp)
 		case "update": // handle incoming update notification
 			var id string
 			json.Unmarshal(*msg.Params[0], &id)
@@ -136,6 +300,10 @@ func (ovsdb *OVSDB) loop() error {
 // after it is unblocked in incoming message receiver loop it returns response
 // from server as raw data to be unmarshaled later
 func (ovsdb *OVSDB) Call(method string, args interface{}, idref *uint64) (json.RawMessage, error) {
+	if ovsdb.synchronize != nil && ovsdb.synchronize.WaitConnected() {
+		return nil, errors.New("no connection")
+	}
+
 	id := ovsdb.GetCounter()
 	if idref != nil {
 		*idref = id
@@ -156,11 +324,19 @@ func (ovsdb *OVSDB) Call(method string, args interface{}, idref *uint64) (json.R
 	}
 
 	// send message
-	err := ovsdb.enc.Encode(req)
+	err := ovsdb.encodeWrapper(req)
+	if err != nil {
+		return nil, err
+	}
 
 	// block function
 	<-ch
 
+	if ovsdb.pending[id].connectionClosed {
+		return nil, errors.New("connection closed")
+	}
+
+	// transaction error always is null, OVSDB errors for transactions are handled later
 	if ovsdb.pending[id].error != nil {
 		var err2 Error
 
@@ -174,7 +350,7 @@ func (ovsdb *OVSDB) Call(method string, args interface{}, idref *uint64) (json.R
 	response := ovsdb.pending[id].response
 	delete(ovsdb.pending, id)
 
-	return *response, err
+	return *response, nil
 }
 
 func (ovsdb *OVSDB) Notify(method string, args interface{}) error {
@@ -183,7 +359,7 @@ func (ovsdb *OVSDB) Notify(method string, args interface{}) error {
 		"params": args,
 		"id":     nil,
 	}
-	err := ovsdb.enc.Encode(req)
+	err := ovsdb.encodeWrapper(req)
 
 	return err
 }

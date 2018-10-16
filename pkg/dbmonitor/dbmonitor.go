@@ -43,7 +43,6 @@ func (monitor *Monitor) Register(tableName string, monitorTable interface{}) {
 }
 
 func (monitor *Monitor) Start (callback Callback) (json.RawMessage, error) {
-
 	monitor.id = "monitor-" + strconv.FormatUint(monitor.OVSDB.GetCounter(), 10)
 	args := []interface {}{
 		monitor.Schema,

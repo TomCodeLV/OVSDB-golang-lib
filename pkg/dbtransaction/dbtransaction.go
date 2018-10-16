@@ -194,12 +194,17 @@ func (txn *Transaction) Commit() (Transact, error, bool) {
 	args = append(args, txn.Actions...)
 
 	var id uint64
-	response, _ := txn.OVSDB.Call("transact", args, &id)
+	response, err := txn.OVSDB.Call("transact", args, &id)
+	// for transaction call can only return network errors, so retry is true
+	if err != nil {
+		return nil, err, true
+	}
 	txn.id = id
 
 	var t Transact
 	json.Unmarshal(response, &t)
 
+	// handle OVSDB errors
 	for _, res := range t {
 		if res.Error != "" {
 			if res.Error == "timed out" {
