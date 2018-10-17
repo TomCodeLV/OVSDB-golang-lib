@@ -1,52 +1,50 @@
 package dbtransaction
 
 import (
-	"strconv"
 	"encoding/json"
 	"errors"
-	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/helpers"
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbcache"
+	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/helpers"
+	"strconv"
 )
 
 type iOVSDB interface {
 	Call(string, interface{}, *uint64) (json.RawMessage, error)
-	Notify(string, interface{}) (error)
+	Notify(string, interface{}) error
 }
 
 type UUID []string
 
-
 type ActionResponse struct {
-	Rows []interface{}		`json:"rows"`
-	UUID UUID
-	Error string
+	Rows    []interface{} `json:"rows"`
+	UUID    UUID
+	Error   string
 	Details string
 }
 
 type Transact []ActionResponse
 
-
 // Transaction handle structure
 type Transaction struct {
-	OVSDB iOVSDB
-	Schema string
-	Actions []interface{}
-	Tables map[string]string
+	OVSDB      iOVSDB
+	Schema     string
+	Actions    []interface{}
+	Tables     map[string]string
 	References map[string][]interface{}
-	Counter int
-	id uint64
+	Counter    int
+	id         uint64
 }
 
 func (txn *Transaction) Cancel() {
-	args := []interface {}{txn.id}
+	args := []interface{}{txn.id}
 
-	txn.OVSDB.Notify("cancel", args	)
+	txn.OVSDB.Notify("cancel", args)
 }
 
 type Select struct {
-	Table string
+	Table   string
 	Columns []string
-	Where [][]interface{}
+	Where   [][]interface{}
 }
 
 func (txn *Transaction) Select(s Select) {
@@ -70,7 +68,7 @@ func (txn *Transaction) Select(s Select) {
 
 type Insert struct {
 	Table string
-	Row interface{}
+	Row   interface{}
 }
 
 func (txn *Transaction) Insert(i Insert) string {
@@ -90,9 +88,9 @@ func (txn *Transaction) Insert(i Insert) string {
 }
 
 type Update struct {
-	Table string
-	Where [][]interface{}
-	Row map[string]interface{}
+	Table    string
+	Where    [][]interface{}
+	Row      map[string]interface{}
 	WaitRows []interface{}
 }
 
@@ -106,11 +104,11 @@ func (txn *Transaction) Update(u Update) {
 		}
 
 		txn.Wait(Wait{
-			Table: u.Table,
-			Where: u.Where,
+			Table:   u.Table,
+			Where:   u.Where,
 			Columns: columns,
-			Until: "==",
-			Rows: u.WaitRows,
+			Until:   "==",
+			Rows:    u.WaitRows,
 		})
 	}
 
@@ -129,8 +127,8 @@ func (txn *Transaction) Update(u Update) {
 }
 
 type Mutate struct {
-	Table string
-	Where [][]interface{}
+	Table     string
+	Where     [][]interface{}
 	Mutations [][]interface{}
 }
 
@@ -166,11 +164,11 @@ func (txn *Transaction) Delete(d Delete) {
 
 type Wait struct {
 	Timeout uint64
-	Table string
-	Where [][]interface{}
+	Table   string
+	Where   [][]interface{}
 	Columns []string
-	Until string
-	Rows []interface{}
+	Until   string
+	Rows    []interface{}
 }
 
 func (txn *Transaction) Wait(w Wait) {
@@ -190,7 +188,7 @@ func (txn *Transaction) Wait(w Wait) {
 // Commit stores all staged changes in DB. It manages references in main table
 // automatically.
 func (txn *Transaction) Commit() (Transact, error, bool) {
-	args := []interface {}{txn.Schema}
+	args := []interface{}{txn.Schema}
 	args = append(args, txn.Actions...)
 
 	var id uint64
@@ -228,14 +226,14 @@ func (txn *Transaction) Commit() (Transact, error, bool) {
 // ==================
 
 type DeleteReferences struct {
-	Table string
-	WhereId string
+	Table           string
+	WhereId         string
 	ReferenceColumn string
-	DeleteIdsList []string
-	CurrentIdsList []string // can be passed for performance reasons
-	Wait bool
-	Cache *dbcache.Cache
-	LockChannel chan int // used for locking for testing purposes
+	DeleteIdsList   []string
+	CurrentIdsList  []string // can be passed for performance reasons
+	Wait            bool
+	Cache           *dbcache.Cache
+	LockChannel     chan int // used for locking for testing purposes
 }
 
 func (txn *Transaction) DeleteReferences(dr DeleteReferences) *Transaction {
@@ -270,20 +268,20 @@ func (txn *Transaction) DeleteReferences(dr DeleteReferences) *Transaction {
 
 	// lock for testing purposes
 	if dr.LockChannel != nil {
-		<- dr.LockChannel
+		<-dr.LockChannel
 	}
 
 	return txn
 }
 
 type InsertReferences struct {
-	Table string
-	WhereId string
+	Table           string
+	WhereId         string
 	ReferenceColumn string
-	InsertIdsList []string
-	CurrentIdsList []string
-	Wait bool
-	Cache *dbcache.Cache
+	InsertIdsList   []string
+	CurrentIdsList  []string
+	Wait            bool
+	Cache           *dbcache.Cache
 }
 
 func (txn *Transaction) InsertReferences(ir InsertReferences) *Transaction {
@@ -299,7 +297,7 @@ func (txn *Transaction) InsertReferences(ir InsertReferences) *Transaction {
 		Where: [][]interface{}{{"_uuid", "==", []string{"uuid", ir.WhereId}}},
 		Row: map[string]interface{}{
 			ir.ReferenceColumn: helpers.MakeOVSDBSet(map[string]interface{}{
-				"uuid": bridgeIdList,
+				"uuid":       bridgeIdList,
 				"named-uuid": ir.InsertIdsList,
 			}),
 		},

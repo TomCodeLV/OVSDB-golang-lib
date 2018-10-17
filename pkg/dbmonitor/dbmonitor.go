@@ -2,8 +2,8 @@ package dbmonitor
 
 import (
 	"encoding/json"
-	"strconv"
 	"errors"
+	"strconv"
 )
 
 type iOVSDB interface {
