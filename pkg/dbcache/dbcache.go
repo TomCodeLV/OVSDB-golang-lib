@@ -15,6 +15,7 @@ type iOVSDB interface {
 }
 
 type Cache struct {
+	ID string
 	sync.RWMutex
 	OVSDB iOVSDB
 	Schema string
@@ -33,7 +34,9 @@ func (cache *Cache) StartMonitor(schema string, tables map[string][]string) erro
 	}
 
 	res, err := monitor.Start(func(response json.RawMessage) {
+		cache.Lock()
 		cache.update(response)
+		cache.Unlock()
 	})
 	if err != nil {
 		return err
@@ -41,12 +44,12 @@ func (cache *Cache) StartMonitor(schema string, tables map[string][]string) erro
 
 	cache.Lock()
 	cache.Data = make(map[string]interface{})
-	cache.Unlock()
-
 	err2 := cache.update(res)
 	if err2 != nil {
+		cache.Unlock()
 		return err2
 	}
+	cache.Unlock()
 
 	return nil
 }
@@ -115,7 +118,6 @@ func (cache *Cache) update(response json.RawMessage) error {
 	var update map[string]map[string]dbmonitor.RowUpdate
 	json.Unmarshal(response, &update)
 
-	cache.Lock()
 	for table, data := range update {
 		for uuid, rowUpdate := range data {
 			// make structures on initial update
@@ -161,7 +163,6 @@ func (cache *Cache) update(response json.RawMessage) error {
 			}
 		}
 	}
-	cache.Unlock()
 
 	update = nil
 

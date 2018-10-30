@@ -1,17 +1,16 @@
 package ovsdb
 
 import (
-	"fmt"
-	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbcache"
-	"sync"
-	"testing"
 	"encoding/json"
-	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/ovshelper"
+	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbcache"
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbmonitor"
-	"time"
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/dbtransaction"
 	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/helpers"
-	)
+	"github.com/TomCodeLV/OVSDB-golang-lib/pkg/ovshelper"
+	"sync"
+	"testing"
+	"time"
+)
 
 var network = "tcp"
 var address = ":12345"
@@ -20,37 +19,21 @@ var address = ":12345"
 //var address = "/run/openvswitch/db.sock"
 
 func TestDial(t *testing.T) {
-	db, err := Dial(network, address)
-	if err != nil {
-		t.Error("Dial failed")
-	} else {
-		db.Close()
-	}
+	db := Dial([][]string{{network, address}}, nil)
+	db.Close()
 }
 
 func TestDialDouble(t *testing.T) {
-	db, err := Dial(network, address)
-	if err != nil {
-		t.Error("Dial failed")
-	} else {
-		defer db.Close()
-	}
+	db := Dial([][]string{{network, address}}, nil)
+	defer db.Close()
 
-	db2, err2 := Dial(network, address)
-	if err2 != nil {
-		t.Error("Dial failed")
-	} else {
-		defer db2.Close()
-	}
+	db2 := Dial([][]string{{network, address}}, nil)
+	defer db2.Close()
 }
 
 func TestOVSDB_ListDbs(t *testing.T) {
-	db, err := Dial(network, address)
-	if err != nil {
-		t.Error("Dial failed")
-	} else {
-		defer db.Close()
-	}
+	db := Dial([][]string{{network, address}}, nil)
+	defer db.Close()
 
 	found := false
 	dbs := db.ListDbs()
@@ -66,12 +49,8 @@ func TestOVSDB_ListDbs(t *testing.T) {
 }
 
 func TestOVSDB_GetSchema(t *testing.T) {
-	db, err := Dial(network, address)
-	if err != nil {
-		t.Error("Dial failed")
-	} else {
-		defer db.Close()
-	}
+	db := Dial([][]string{{network, address}}, nil)
+	defer db.Close()
 
 	response, err := db.GetSchema("Open_vSwitch")
 	if err != nil {
@@ -92,12 +71,8 @@ func TestOVSDB_GetSchema(t *testing.T) {
 }
 
 func TestOVSDB_Transaction_main(t *testing.T) {
-	db, err := Dial(network, address)
-	if err != nil {
-		t.Error("Dial failed")
-	} else {
-		defer db.Close()
-	}
+	db := Dial([][]string{{network, address}}, nil)
+	defer db.Close()
 
 	// fetch references
 	txn := db.Transaction("Open_vSwitch")
@@ -190,12 +165,8 @@ func TestOVSDB_Transaction_main(t *testing.T) {
 func TestOVSDB_Transaction_Cancel(t *testing.T) {
 	loop := true
 	return // ignore while cancel does not work - bug
-	db, err := Dial(network, address)
-	if err != nil {
-		t.Error("Dial failed")
-	} else {
-		defer db.Close()
-	}
+	db := Dial([][]string{{network, address}}, nil)
+	defer db.Close()
 
 	txn := db.Transaction("Open_vSwitch")
 	txn.Wait(dbtransaction.Wait{
@@ -230,12 +201,8 @@ func TestOVSDB_Monitor_And_Mutate(t *testing.T) {
 	loop := true
 	updateCount := 0
 
-	db, err := Dial(network, address)
-	if err != nil {
-		t.Error("Dial failed")
-	} else {
-		defer db.Close()
-	}
+	db := Dial([][]string{{network, address}}, nil)
+	defer db.Close()
 
 	// start monitor
 	monitor := db.Monitor("Open_vSwitch")
@@ -302,11 +269,8 @@ func TestOVSDB_Monitor_And_Mutate(t *testing.T) {
 
 func TestOVSDB_Cache_main(t *testing.T) {
 	// dial in
-	db, err := Dial(network, address) //db, err := ovsdb.Dial("unix", "/run/openvswitch/db.sock")
-	if err != nil {
-		t.Error("unable to dial: " + err.Error())
-		return
-	}
+	db := Dial([][]string{{network, address}}, nil)
+	defer db.Close()
 
 	// initialize cache
 	cache, err := db.Cache(Cache{
@@ -387,12 +351,8 @@ func TestOVSDB_Cache_main(t *testing.T) {
 
 func TestOVSDB_Advanced_first(t *testing.T) {
 	// dial in
-	db, err := Dial(network, address) //db, err := ovsdb.Dial("unix", "/run/openvswitch/db.sock")
-	if err != nil {
-		t.Error("Dial failed")
-	} else {
-		defer db.Close()
-	}
+	db := Dial([][]string{{network, address}}, nil)
+	defer db.Close()
 
 	// initialize cache
 	cache, err := db.Cache(Cache{
@@ -493,12 +453,8 @@ func TestOVSDB_Advanced_first(t *testing.T) {
 
 func TestOVSDB_Advanced_Helpers(t *testing.T) {
 	// dial in
-	db, err := Dial(network, address) //db, err := ovsdb.Dial("unix", "/run/openvswitch/db.sock")
-	if err != nil {
-		t.Error("Dial failed")
-	} else {
-		defer db.Close()
-	}
+	db := Dial([][]string{{network, address}}, nil)
+	defer db.Close()
 
 	// initialize cache
 	cache, err := db.Cache(Cache{
@@ -576,16 +532,9 @@ func TestOVSDB_Race_Condition(t *testing.T) {
 		t.Error("Race condition timeout")
 		panic("!!!")
 	})
-
 	// dial in
-	db, err := Dial(network, address)
-	if err != nil {
-		t.Error("Dial failed")
-		fmt.Println(err)
-		return
-	} else {
-		defer db.Close()
-	}
+	db := Dial([][]string{{network, address}}, nil)
+	defer db.Close()
 
 	// initialize cache
 	cache, err := db.Cache(Cache{
@@ -654,20 +603,20 @@ func TestOVSDB_Race_Condition(t *testing.T) {
 	<- ch2
 
 	// Change bridge list to cause concurrent delete to fail
-	bridgeId, ok = cache.GetMap("Bridge", "name", "TEST_BRIDGE2")["uuid"].(string)
-	if ok {
+	bridgeId2, ok2 := cache.GetMap("Bridge", "name", "TEST_BRIDGE2")["uuid"].(string)
+	if ok2 {
 		// delete old bridge
 		db.Transaction("Open_vSwitch").DeleteReferences(dbtransaction.DeleteReferences{
 			Table:           "Open_vSwitch",
 			WhereId:         schemaId,
 			ReferenceColumn: "bridges",
-			DeleteIdsList:   []string{bridgeId},
+			DeleteIdsList:   []string{bridgeId2},
 			Wait:            true,
 			Cache:           cache,
 		}).Commit()
 	} else {
 		txn := db.Transaction("Open_vSwitch")
-		bridgeId := txn.Insert(dbtransaction.Insert{
+		bridgeId2 := txn.Insert(dbtransaction.Insert{
 			Table: "Bridge",
 			Row: ovshelper.Bridge{
 				Name: "TEST_BRIDGE2",
@@ -677,7 +626,7 @@ func TestOVSDB_Race_Condition(t *testing.T) {
 			Table:           "Open_vSwitch",
 			WhereId:         schemaId,
 			ReferenceColumn: "bridges",
-			InsertIdsList:   []string{bridgeId},
+			InsertIdsList:   []string{bridgeId2},
 			Wait:            true,
 			Cache:           cache,
 		})
@@ -692,16 +641,17 @@ func TestOVSDB_Race_Condition(t *testing.T) {
 }
 
 func TestOVSDB_Persistent_Connection(t *testing.T) {
-	to := time.AfterFunc(time.Millisecond * 300, func(){
+	to := time.AfterFunc(time.Millisecond * 500, func(){
 		t.Error("Persistent connection timeout")
 		panic("!!!")
 	})
+	m := new(sync.Mutex)
 
 	var cache *dbcache.Cache
-	db := PersistentDial([][]string{{network, address}, {"tcp",":1234"}}, func(db *OVSDB) error {
-		var err error
+	db := Dial([][]string{{network, address}, {"tcp",":1234"}}, func(db *OVSDB) error {
 		// initialize cache
-		cache, err = db.Cache(Cache{
+		m.Lock()
+		tmpCache, err := db.Cache(Cache{
 			Schema: "Open_vSwitch",
 			Tables: map[string][]string{
 				"Open_vSwitch": nil,
@@ -712,16 +662,21 @@ func TestOVSDB_Persistent_Connection(t *testing.T) {
 			},
 		})
 		if err != nil {
+			m.Unlock()
 			return err
 		}
+		cache = tmpCache
+		m.Unlock()
 		return nil
 	})
 
 	// first disconnect, reconnect happens before transaction
-	(*db).Close()
+	db.Close()
 	time.Sleep(100*time.Millisecond)
 
+	m.Lock()
 	schemaId := cache.GetKeys("Open_vSwitch", "uuid")[0]
+	m.Unlock()
 	counter := 0
 
 	var once sync.Once
@@ -729,7 +684,7 @@ func TestOVSDB_Persistent_Connection(t *testing.T) {
 	var retry = true
 	for retry {
 		counter = counter + 1
-		txn := (*db).Transaction("Open_vSwitch")
+		txn := db.Transaction("Open_vSwitch")
 		bridgeId := txn.Insert(dbtransaction.Insert{
 			Table: "Bridge",
 			Row: ovshelper.Bridge{
@@ -745,7 +700,7 @@ func TestOVSDB_Persistent_Connection(t *testing.T) {
 			Cache:           cache,
 		})
 
-		once.Do(func(){(*db).Close()})
+		once.Do(func(){db.Close()})
 		_, _, retry = txn.Commit()
 	}
 
