@@ -315,3 +315,8 @@ func (txn *Transaction) InsertReferences(ir InsertReferences) *Transaction {
 
 	return txn
 }
+
+// Unset value in OVSDB is represented as empty set
+func GetNil() []interface{} {
+	return []interface{}{"set", []interface{}{}}
+}

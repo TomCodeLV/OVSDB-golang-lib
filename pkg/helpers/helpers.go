@@ -32,6 +32,18 @@ func MakeOVSDBSet(data map[string]interface{}) []interface{} {
 	}
 }
 
+// Helper function to create ovsdb map
+func MakeOVSDBMap(data map[string]interface{}) []interface{} {
+	list := []interface{}{}
+	for key, v := range data {
+		list = append(list, []string{key, v.(string)})
+	}
+	return []interface{}{
+		"map",
+		list,
+	}
+}
+
 func RemoveFromIdList(list []string, idsList []string) []string {
 	idMap := make(map[string]bool, len(idsList))
 	for _, val := range idsList {
@@ -47,27 +59,3 @@ func RemoveFromIdList(list []string, idsList []string) []string {
 
 	return ret
 }
-
-//func AppendNamedUUIDToUUIDList(UUIDList []interface{}, idsList []string) []interface{} {
-//	ret := UUIDList
-//	for _, val := range idsList {
-//		ret = append(ret, []interface{}{"named-uuid", val})
-//	}
-//	return ret
-//}
-
-//func MapToList(data interface{}) []interface{} {
-//	switch data.(type) {
-//	case map[string]interface{}:
-//		d := data.(map[string]interface{})
-//		l := make([]interface{}, len(d))
-//		c := 0
-//		for _, val := range d {
-//			l[c] = val
-//			c++
-//		}
-//		return l
-//	default:
-//		return nil
-//	}
-//}
