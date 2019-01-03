@@ -19,20 +19,20 @@ var address = ":12345"
 //var address = "/run/openvswitch/db.sock"
 
 func TestDial(t *testing.T) {
-	db := Dial([][]string{{network, address}}, nil)
+	db := Dial([][]string{{network, address}}, nil, nil)
 	db.Close()
 }
 
 func TestDialDouble(t *testing.T) {
-	db := Dial([][]string{{network, address}}, nil)
+	db := Dial([][]string{{network, address}}, nil, nil)
 	defer db.Close()
 
-	db2 := Dial([][]string{{network, address}}, nil)
+	db2 := Dial([][]string{{network, address}}, nil, nil)
 	defer db2.Close()
 }
 
 func TestOVSDB_ListDbs(t *testing.T) {
-	db := Dial([][]string{{network, address}}, nil)
+	db := Dial([][]string{{network, address}}, nil, nil)
 	defer db.Close()
 
 	found := false
@@ -49,7 +49,7 @@ func TestOVSDB_ListDbs(t *testing.T) {
 }
 
 func TestOVSDB_GetSchema(t *testing.T) {
-	db := Dial([][]string{{network, address}}, nil)
+	db := Dial([][]string{{network, address}}, nil, nil)
 	defer db.Close()
 
 	response, err := db.GetSchema("Open_vSwitch")
@@ -71,7 +71,7 @@ func TestOVSDB_GetSchema(t *testing.T) {
 }
 
 func TestOVSDB_Transaction_main(t *testing.T) {
-	db := Dial([][]string{{network, address}}, nil)
+	db := Dial([][]string{{network, address}}, nil, nil)
 	defer db.Close()
 
 	// fetch references
@@ -165,7 +165,7 @@ func TestOVSDB_Transaction_main(t *testing.T) {
 func TestOVSDB_Transaction_Cancel(t *testing.T) {
 	loop := true
 	return // ignore while cancel does not work - bug
-	db := Dial([][]string{{network, address}}, nil)
+	db := Dial([][]string{{network, address}}, nil, nil)
 	defer db.Close()
 
 	txn := db.Transaction("Open_vSwitch")
@@ -201,7 +201,7 @@ func TestOVSDB_Monitor_And_Mutate(t *testing.T) {
 	loop := true
 	updateCount := 0
 
-	db := Dial([][]string{{network, address}}, nil)
+	db := Dial([][]string{{network, address}}, nil, nil)
 	defer db.Close()
 
 	// start monitor
@@ -269,7 +269,7 @@ func TestOVSDB_Monitor_And_Mutate(t *testing.T) {
 
 func TestOVSDB_Cache_main(t *testing.T) {
 	// dial in
-	db := Dial([][]string{{network, address}}, nil)
+	db := Dial([][]string{{network, address}}, nil, nil)
 	defer db.Close()
 
 	// initialize cache
@@ -351,7 +351,7 @@ func TestOVSDB_Cache_main(t *testing.T) {
 
 func TestOVSDB_Advanced_first(t *testing.T) {
 	// dial in
-	db := Dial([][]string{{network, address}}, nil)
+	db := Dial([][]string{{network, address}}, nil, nil)
 	defer db.Close()
 
 	// initialize cache
@@ -453,7 +453,7 @@ func TestOVSDB_Advanced_first(t *testing.T) {
 
 func TestOVSDB_Advanced_Helpers(t *testing.T) {
 	// dial in
-	db := Dial([][]string{{network, address}}, nil)
+	db := Dial([][]string{{network, address}}, nil, nil)
 	defer db.Close()
 
 	// initialize cache
@@ -533,7 +533,7 @@ func TestOVSDB_Race_Condition(t *testing.T) {
 		panic("!!!")
 	})
 	// dial in
-	db := Dial([][]string{{network, address}}, nil)
+	db := Dial([][]string{{network, address}}, nil, nil)
 	defer db.Close()
 
 	// initialize cache
@@ -668,7 +668,7 @@ func TestOVSDB_Persistent_Connection(t *testing.T) {
 		cache = tmpCache
 		m.Unlock()
 		return nil
-	})
+	}, nil)
 
 	// first disconnect, reconnect happens before transaction
 	db.Close()
