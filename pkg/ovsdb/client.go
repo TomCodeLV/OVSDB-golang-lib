@@ -190,7 +190,9 @@ func Dial(addressList [][]string, initialize func(*OVSDB) error, options map[str
 
 				conn, err = tls.Dial("tcp", address, cfg)
 			} else {
-				conn, err = net.Dial(network, address)
+				// DialNet is platform dependent. On windows platform, the "named pipe" connection is supported
+				// and the corresponding network name is "winpipe".
+				conn, err = DialNet(network, address)
 			}
 
 			if err != nil {
