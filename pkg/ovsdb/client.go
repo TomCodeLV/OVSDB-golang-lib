@@ -484,17 +484,20 @@ func (ovsdb *OVSDB) GetSchema(schema string) (json.RawMessage, error) {
 // ADVANCED FUNCTIONALITY CONSTRUCTORS
 // ===================================
 
-// Transaction returns transaction handle
-func (ovsdb *OVSDB) Transaction(schema string) *dbtransaction.Transaction {
+// NewTransaction is a constructor for a Transaction object, always returning a transaction object
+func (ovsdb *OVSDB) NewTransaction(schema string) *dbtransaction.Transaction {
 	txn := new(dbtransaction.Transaction)
-
 	txn.OVSDB = ovsdb
 	txn.Schema = schema
 	txn.Tables = map[string]string{}
 	txn.References = make(map[string][]interface{})
 	txn.Counter = 1
-
 	return txn
+}
+
+// deprecated Transaction function, use NewTransaction instead 
+func (ovsdb *OVSDB) Transaction(schema string) *dbtransaction.Transaction {
+	return NewTransaction(schema)
 }
 
 func (ovsdb *OVSDB) Monitor(schema string) *dbmonitor.Monitor {
